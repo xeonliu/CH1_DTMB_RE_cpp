@@ -65,6 +65,56 @@ device (VID/PID `0x3344` / `0x1120`) with WinUSB or libusbK.  Run:
 .\build\Release\lme2510_stream.exe --freq 618 --no-udp --file out.ts --seconds 10
 ```
 
+### Windows XP (32-bit)
+
+GitHub Actions has no Windows XP runners, so the XP artifact is
+cross-compiled on Linux with an i686 MinGW-w64 toolchain (see
+`.github/workflows/ci.yml`).  The workflow pins libusb to **1.0.23**, the last
+release that still supported Windows XP, and links the compiler runtime
+statically so the resulting `.exe` has no extra DLL dependencies.
+
+To build an XP artifact locally on Ubuntu 22.04:
+
+```sh
+sudo apt-get install g++-mingw-w64-i686-win32 libusb-1.0-0-dev pkg-config
+
+ROOT="$PWD"
+XP_PREFIX="$ROOT/build/xp-libusb-prefix"
+
+# 1. Build a host-native copy of the firmware generator.
+cmake -S . -B build/host-gen -DCMAKE_BUILD_TYPE=Release
+cmake --build build/host-gen --target gen_firmware_embed
+
+# 2. Build the last XP-capable libusb release for i686 Windows.
+cd "$(mktemp -d)"
+curl -fL -O https://github.com/libusb/libusb/releases/download/v1.0.23/libusb-1.0.23.tar.bz2
+tar -xjf libusb-1.0.23.tar.bz2
+cd libusb-1.0.23
+./configure --host=i686-w64-mingw32 --prefix="$XP_PREFIX" \
+  --enable-static --disable-shared --disable-udev \
+  CFLAGS="-O2 -D_WIN32_WINNT=0x0501 -DWINVER=0x0501"
+make -C libusb -j"$(nproc)"
+make -C libusb install
+cd "$ROOT"
+
+# 3. Configure and build the XP binary.
+cmake -S . -B build/xp \
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/mingw-i686-xp-toolchain.cmake" \
+  -DLME2510_HOST_GEN_FIRMWARE_EMBED="$PWD/build/host-gen/gen_firmware_embed" \
+  -DLIBUSB_INCLUDE_DIR="$XP_PREFIX/include/libusb-1.0" \
+  -DLIBUSB_LIBRARY="$XP_PREFIX/lib/libusb-1.0.a"
+cmake --build build/xp
+```
+
+Windows XP notes:
+
+- Windows XP is normally 32-bit, so use the x86 artifact
+  (`lme2510_stream-xp-x86.exe`).
+- Microsoft's WinUSB is only available from Vista onwards.  On XP, replace the
+  stock driver with a **libusb-win32** or **libusbK** driver; old
+  [Zadig 2.2](https://github.com/pbatard/libwdi/releases/tag/v2.2) is the
+  version that still supports XP.
+
 ## Usage
 
 ```text
@@ -103,6 +153,22 @@ sudo ./build/lme2510_stream --freq 554 --pids 0x0100,0x0101 --no-udp \
 
 Play the UDP stream in VLC with `udp://@1234`.  File captures are standard
 188-byte MPEG-TS and can be played by any TS-aware player.
+
+## Releases
+
+Pushing a tag starting with `v` (for example `v1.0.0`) triggers
+`.github/workflows/release.yml`, which builds Linux x64, macOS, Windows x64 and
+Windows XP x86 binaries and attaches them to a GitHub Release together with a
+`SHA256SUMS.txt` checksum file:
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Every push/PR also runs `.github/workflows/ci.yml`; the XP binary can be
+downloaded from the workflow run's artifact list (artifacts expire after some
+days, so use a tag for permanent binaries).
 
 ## Compatibility notes
 

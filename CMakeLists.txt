@@ -22,22 +22,44 @@ option(LME2510_BUILD_TOOLS "Build firmware embedding generator" ON)
 set(FW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/fw")
 set(FIRMWARE_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/firmware_embedded.h")
 
-add_executable(gen_firmware_embed tools/gen_firmware_embed.cpp)
+# The firmware header generator is a plain native console program.  When
+# cross-compiling it cannot be executed on the build host, so callers must
+# provide a host-native copy (build it first with a native configure):
+#   cmake -S . -B build/host-gen
+#   cmake --build build/host-gen --target gen_firmware_embed
+#   cmake ... -DLME2510_HOST_GEN_FIRMWARE_EMBED="$PWD/build/host-gen/gen_firmware_embed"
+if(CMAKE_CROSSCOMPILING)
+  if(NOT LME2510_HOST_GEN_FIRMWARE_EMBED OR
+     NOT EXISTS "${LME2510_HOST_GEN_FIRMWARE_EMBED}")
+    message(FATAL_ERROR
+      "Cross-compiling requires a host-native firmware generator. Build it "
+      "with a native CMake configure (target gen_firmware_embed) and pass "
+      "-DLME2510_HOST_GEN_FIRMWARE_EMBED=<path>.")
+  endif()
+  set(GEN_FIRMWARE_EMBED_BIN "${LME2510_HOST_GEN_FIRMWARE_EMBED}")
+else()
+  add_executable(gen_firmware_embed tools/gen_firmware_embed.cpp)
+  set(GEN_FIRMWARE_EMBED_BIN gen_firmware_embed)
+endif()
+
+set(GEN_FIRMWARE_DEPENDS
+  "${FW_DIR}/fw_bootloader.bin"
+  "${FW_DIR}/fw_lgs8g75.bin"
+  "${FW_DIR}/fw_lgs8gl5.bin")
+if(NOT CMAKE_CROSSCOMPILING)
+  list(APPEND GEN_FIRMWARE_DEPENDS gen_firmware_embed)
+endif()
 
 add_custom_command(
   OUTPUT "${FIRMWARE_HEADER}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory
           "${CMAKE_CURRENT_BINARY_DIR}/generated"
-  COMMAND gen_firmware_embed
+  COMMAND "${GEN_FIRMWARE_EMBED_BIN}"
           "${FIRMWARE_HEADER}"
           "${FW_DIR}/fw_bootloader.bin"  kFwBootloader
           "${FW_DIR}/fw_lgs8g75.bin"     kFwLgs8g75
           "${FW_DIR}/fw_lgs8gl5.bin"     kFwLgs8gl5
-  DEPENDS
-    gen_firmware_embed
-    "${FW_DIR}/fw_bootloader.bin"
-    "${FW_DIR}/fw_lgs8g75.bin"
-    "${FW_DIR}/fw_lgs8gl5.bin"
+  DEPENDS ${GEN_FIRMWARE_DEPENDS}
   COMMENT "Embedding firmware blobs"
   VERBATIM)
 
