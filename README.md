@@ -112,7 +112,7 @@ Windows XP notes:
   (`lme2510_stream-xp-x86.exe`).
 - Microsoft's WinUSB is only available from Vista onwards.  On XP, replace the
   stock driver with a **libusb-win32** or **libusbK** driver; old
-  [Zadig 2.2](https://github.com/pbatard/libwdi/releases/tag/v2.2) is the
+  [Zadig 2.2](https://github.com/pbatard/libwdi/releases/download/v1.2.5/zadig_xp-2.2.exe) is the
   version that still supports XP.
 
 ## Usage
