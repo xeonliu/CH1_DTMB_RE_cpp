@@ -63,8 +63,6 @@ jobs:
   windows-xp:
     name: Windows XP (i686 MinGW)
     runs-on: ubuntu-22.04
-    env:
-      XP_PREFIX: ${{ runner.temp }}/libusb-xp-prefix
 
     steps:
       - uses: actions/checkout@v4
@@ -86,6 +84,8 @@ jobs:
           cmake --build build/host-gen --target gen_firmware_embed --parallel 2
 
       - name: Build libusb 1.0.23 (last XP-compatible release)
+        env:
+          XP_PREFIX: ${{ runner.temp }}/libusb-xp-prefix
         run: |
           cd "$RUNNER_TEMP"
           curl -fL --retry 3 -o libusb-1.0.23.tar.bz2 \
@@ -102,6 +102,8 @@ jobs:
           make -C libusb install
 
       - name: Configure Windows XP build
+        env:
+          XP_PREFIX: ${{ runner.temp }}/libusb-xp-prefix
         run: |
           cmake -S . -B build/xp \
             -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/cmake/mingw-i686-xp-toolchain.cmake" \
