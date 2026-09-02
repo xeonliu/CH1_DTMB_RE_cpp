@@ -1,4 +1,4 @@
-# CH1_DTMB_RE C++17 Port
+# 第一波道 DTMB USB 电视棒用户态客户端（CH1_DTMB_RE C++17 Port）
 
 Cross-platform C++17 program that drives a CH1 DTMB receiver (LME2510C USB
 bridge, VID/PID `0x3344` / `0x1120`, LGS8GL5 demodulator, MAX2165 tuner) and
