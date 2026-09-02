@@ -1,26 +1,19 @@
 # CH1_DTMB_RE C++17 Port
 
-A cross-platform C++17 reimplementation of the CH1 DTMB receiver workflow
-previously prototyped in `lme2510_stream.py`.  It drives the same
-LME2510C USB bridge (VID/PID `0x3344` / `0x1120`) with an LGS8GL5 demodulator
-and a MAX2165 tuner, and forwards the demodulated MPEG-TS stream over UDP,
-raw UDP, and/or a `.ts` file.
-
-This repository contains the firmware blobs extracted from the original
-Windows driver and embeds them into the executable at build time.  No Python
-runtime is needed.
+Cross-platform C++17 program that drives a CH1 DTMB receiver (LME2510C USB
+bridge, VID/PID `0x3344` / `0x1120`, LGS8GL5 demodulator, MAX2165 tuner) and
+forwards the demodulated MPEG-TS stream over UDP, raw UDP, and/or a `.ts` file.
+Firmware blobs extracted from the original Windows driver are embedded into the
+executable at build time.
 
 ## Supported hardware
 
 - CH1 DTMB stick with LME2510C bridge firmware.
 - Demodulator: Legend Silicon LGS8GL5.
 - Tuner: Maxim MAX2165.
-- TS output endpoint: EP `0x88` (High Speed only).  A Full Speed device would
-  use a different stream endpoint and is intentionally rejected/unsupported in
-  this version.
+- TS output endpoint: EP `0x88`.
 
-Protocol reference: [LME2510_Analysis.md](LME2510_Analysis.md).  Upstream
-kernel driver: <https://github.com/torvalds/linux/blob/master/drivers/media/usb/dvb-usb-v2/lmedm04.c>.
+Protocol reference: [LME2510_Analysis.md](LME2510_Analysis.md).
 
 ## Build
 
@@ -111,28 +104,18 @@ sudo ./build/lme2510_stream --freq 554 --pids 0x0100,0x0101 --no-udp \
 Play the UDP stream in VLC with `udp://@1234`.  File captures are standard
 188-byte MPEG-TS and can be played by any TS-aware player.
 
-## Notes
-
-- Embedded stage-2 firmware keeps the original `fw_lgs8g75.bin` bridge blob
-  used by the Python workflow; the filename predates this project and is not a
-  claim of LGS8G75 hardware support.  The demodulator validated by this port
-  is LGS8GL5.  Pass `--fw2` to load a different blob.
-- Status/register logs are created under `logs/` on every run.
-- The main thread continuously drains EP `0x88`; register telemetry and status
-  reads happen only when the stream loop is idle or after it stops, unless
-  `--live-status` is used.
-
 ## Compatibility notes
 
-Only the combination validated by this project is claimed as supported:
+- Full Speed USB devices use a different TS stream endpoint than EP `0x88` and
+  are intentionally rejected/unsupported in this version.
+- The LGS8G75 branch in the protocol/initialization code has not been validated
+  against hardware in this port and is not claimed as supported.
+- Firmware download searches for cold-boot PID `0x1111` before the stage-1
+  firmware is loaded; that PID is only a transient boot state, not a supported
+  device identity.
 
-- LME2510C with USB VID/PID `0x3344` / `0x1120`
-- LGS8GL5 demodulator
-- MAX2165 tuner
-- High Speed USB with EP `0x88` as the TS endpoint
+## Acknowledgements
 
-The LGS8G75 branch in the protocol/initialization code has not been validated
-against hardware in this port and is therefore not claimed as supported.
-Firmware download also searches for cold-boot PID `0x1111` before the stage-1
-firmware is loaded; that PID is only a transient boot state, not a supported
-device identity.
+- [Linux Kernel Driver for LME2510C](https://github.com/torvalds/linux/blob/master/drivers/media/usb/dvb-usb-v2/lmedm04.c)
+- [LeDTMB](https://github.com/IcingTomato/LeDTMB): Client for a rather simple DTMB receiver.
+- [libusb](https://libusb.info/): Library for USB device access in userspace.

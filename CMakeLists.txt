@@ -91,9 +91,15 @@ if(WIN32)
 else()
   find_package(PkgConfig QUIET)
   if(PkgConfig_FOUND)
-    pkg_check_modules(LIBUSB libusb-1.0)
+    # pkg_check_modules caches its result in the cache; force a re-check on
+    # every configure so its imported target is always recreated.
+    unset(LIBUSB_FOUND CACHE)
+    unset(__pkg_config_checked_LIBUSB CACHE)
+    pkg_check_modules(LIBUSB IMPORTED_TARGET libusb-1.0)
   endif()
-  if(NOT LIBUSB_FOUND)
+  if(TARGET PkgConfig::LIBUSB)
+    set(LIBUSB_LIBRARIES PkgConfig::LIBUSB)
+  else()
     find_path(LIBUSB_INCLUDE_DIR NAMES libusb.h
               PATH_SUFFIXES libusb-1.0 libusb)
     find_library(LIBUSB_LIBRARY NAMES usb-1.0 libusb-1.0)
