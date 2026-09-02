@@ -71,7 +71,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            g++-mingw-w64-i686-win32 \
+            g++-mingw-w64-i686-posix \
             libusb-1.0-0-dev \
             pkg-config
           i686-w64-mingw32-g++ --version

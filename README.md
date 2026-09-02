@@ -76,7 +76,7 @@ statically so the resulting `.exe` has no extra DLL dependencies.
 To build an XP artifact locally on Ubuntu 22.04:
 
 ```sh
-sudo apt-get install g++-mingw-w64-i686-win32 libusb-1.0-0-dev pkg-config
+sudo apt-get install g++-mingw-w64-i686-posix libusb-1.0-0-dev pkg-config
 
 ROOT="$PWD"
 XP_PREFIX="$ROOT/build/xp-libusb-prefix"

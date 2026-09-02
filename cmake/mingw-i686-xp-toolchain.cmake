@@ -1,8 +1,9 @@
 # CMake toolchain for cross-compiling 32-bit Windows XP binaries with the
-# MinGW-w64 "win32 threads" compiler on a Linux host.
+# MinGW-w64 "posix threads" compiler on a Linux host.  The posix flavour is
+# required because the win32-thread libstdc++ omits std::mutex/std::thread.
 #
 # Install the toolchain first (Ubuntu):
-#   sudo apt-get install g++-mingw-w64-i686-win32
+#   sudo apt-get install g++-mingw-w64-i686-posix
 #
 # The firmware generator is a native host tool, so cross builds need a
 # host-native copy built beforehand:
@@ -23,14 +24,15 @@ set(CMAKE_C_COMPILER i686-w64-mingw32-gcc)
 set(CMAKE_CXX_COMPILER i686-w64-mingw32-g++)
 set(CMAKE_RC_COMPILER i686-w64-mingw32-windres)
 
-# Only declare/use APIs available on Windows XP SP3 (0x0501).
+# Only declare/use APIs available on Windows XP SP3 (0x0501); -pthread links
+# the winpthread runtime needed by libstdc++'s std::mutex/std::thread.
 set(CMAKE_C_FLAGS_INIT "-D_WIN32_WINNT=0x0501 -DWINVER=0x0501")
-set(CMAKE_CXX_FLAGS_INIT "-D_WIN32_WINNT=0x0501 -DWINVER=0x0501")
+set(CMAKE_CXX_FLAGS_INIT "-D_WIN32_WINNT=0x0501 -DWINVER=0x0501 -pthread")
 
 # Keep the .exe free of compiler-runtime DLL dependencies and mark the PE as
 # XP-compatible (subsystem version 5.01).
 set(CMAKE_EXE_LINKER_FLAGS_INIT
-    "-static -static-libgcc -static-libstdc++ -Wl,--major-subsystem-version,5 -Wl,--minor-subsystem-version,1")
+    "-pthread -static -static-libgcc -static-libstdc++ -Wl,--major-subsystem-version,5 -Wl,--minor-subsystem-version,1")
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
