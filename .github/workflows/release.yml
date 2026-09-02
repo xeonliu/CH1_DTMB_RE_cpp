@@ -1,23 +1,30 @@
-name: ci
+name: release
 
 on:
   push:
-    branches: ["**"]
-    tags-ignore: ["v*"]
-  pull_request:
+    tags:
+      - "v*"
 
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: write
 
 jobs:
-  build:
-    name: ${{ matrix.os }}
+  native:
+    name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            artifact: lme2510_stream-linux-x64
+          - name: macos
+            os: macos-latest
+            artifact: lme2510_stream-macos
+          - name: windows-x64
+            os: windows-latest
+            artifact: lme2510_stream-windows-x64.exe
 
     steps:
       - uses: actions/checkout@v4
@@ -48,18 +55,27 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel 2
 
-      - name: Smoke test (help)
+      - name: Stage artifact
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            ./build/Release/lme2510_stream.exe --help
-          else
-            ./build/lme2510_stream --help
-          fi
+          case "$RUNNER_OS" in
+            Windows)
+              cp build/Release/lme2510_stream.exe "${{ matrix.artifact }}"
+              ;;
+            macOS)
+              cp build/lme2510_stream "${{ matrix.artifact }}"
+              ;;
+            Linux)
+              cp build/lme2510_stream "${{ matrix.artifact }}"
+              ;;
+          esac
 
-  # GitHub does not offer Windows XP hosted runners, so the XP artifact is
-  # cross-compiled on Linux with an i686 MinGW-w64 toolchain.  libusb 1.0.24
-  # dropped XP support, therefore this job pins libusb to 1.0.23.
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: ${{ matrix.artifact }}
+
   windows-xp:
     name: Windows XP (i686 MinGW)
     runs-on: ubuntu-22.04
@@ -74,10 +90,7 @@ jobs:
             g++-mingw-w64-i686-posix \
             libusb-1.0-0-dev \
             pkg-config
-          i686-w64-mingw32-g++ --version
 
-      # The firmware-embedding generator must run on the build host, so build
-      # a native copy first and hand it to the cross CMake configure.
       - name: Build host firmware generator
         run: |
           cmake -S . -B build/host-gen -DCMAKE_BUILD_TYPE=Release
@@ -115,15 +128,37 @@ jobs:
       - name: Build
         run: cmake --build build/xp --parallel 2
 
-      - name: Verify and stage artifact
+      - name: Stage XP artifact
         run: |
           cp build/xp/lme2510_stream.exe lme2510_stream-xp-x86.exe
           file lme2510_stream-xp-x86.exe
-          echo "--- imported DLLs ---"
-          objdump -p lme2510_stream-xp-x86.exe | awk '/DLL Name/{print $3}'
 
-      - name: Upload XP artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lme2510-stream-xp-x86
+          name: release-windows-xp-x86
           path: lme2510_stream-xp-x86.exe
+
+  release:
+    name: Publish GitHub Release
+    needs: [native, windows-xp]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum lme2510_stream-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create release and attach assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

@@ -1,4 +1,5 @@
 #include "lme2510/net/udp_socket.hpp"
+#include "lme2510/util/platform.hpp"
 
 #include <cerrno>
 #include <cstring>
@@ -55,9 +56,11 @@ void UdpSocket::sendTo(const std::string& host, uint16_t port, const void* data,
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_port = htons(port);
-  if (::inet_pton(AF_INET, host.c_str(), &address.sin_addr) != 1) {
+  std::uint32_t addressValue = 0;
+  if (!parseIPv4Host(host, addressValue)) {
     throw std::runtime_error("invalid UDP host: '" + host + "'");
   }
+  address.sin_addr.s_addr = addressValue;
 
   const int sent = static_cast<int>(::sendto(
       fd_, static_cast<const char*>(data), static_cast<int>(size), 0,

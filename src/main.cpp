@@ -1,10 +1,7 @@
-#include <chrono>
-#include <ctime>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <iostream>
-#include <sstream>
 #include <string>
 
 #include "lme2510/frontend/receiver.hpp"
@@ -16,17 +13,12 @@
 namespace {
 
 std::string timestampForFileName() {
-  const auto now = std::chrono::system_clock::now();
-  const std::time_t time = std::chrono::system_clock::to_time_t(now);
-  std::tm local{};
-#ifdef _WIN32
-  localtime_s(&local, &time);
-#else
-  localtime_r(&time, &local);
-#endif
-  std::ostringstream out;
-  out << std::put_time(&local, "%Y%m%d-%H%M%S");
-  return out.str();
+  const lme2510::LocalDateTime now = lme2510::localDateTime();
+  char buffer[32];
+  std::snprintf(buffer, sizeof(buffer), "%04d%02d%02d-%02d%02d%02d",
+                now.year, now.month, now.day, now.hour, now.minute,
+                now.second);
+  return buffer;
 }
 
 }  // namespace

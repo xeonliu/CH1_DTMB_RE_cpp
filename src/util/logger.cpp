@@ -1,33 +1,19 @@
 #include "lme2510/util/logger.hpp"
+#include "lme2510/util/platform.hpp"
 
-#include <chrono>
-#include <ctime>
+#include <cstdio>
 #include <filesystem>
-#include <iomanip>
 #include <sstream>
 
 namespace lme2510 {
 
 std::string nowTimestamp() {
-  using Clock = std::chrono::system_clock;
-  const auto now = Clock::now();
-  const auto time = Clock::to_time_t(now);
-  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                      now.time_since_epoch())
-                      .count() %
-                  1000;
-
-  std::tm local{};
-#ifdef _WIN32
-  localtime_s(&local, &time);
-#else
-  localtime_r(&time, &local);
-#endif
-
-  std::ostringstream out;
-  out << std::put_time(&local, "%Y-%m-%d %H:%M:%S") << '.'
-      << std::setfill('0') << std::setw(3) << ms;
-  return out.str();
+  const LocalDateTime now = localDateTime();
+  char buffer[40];
+  std::snprintf(buffer, sizeof(buffer),
+                "%04d-%02d-%02d %02d:%02d:%02d.%03d", now.year, now.month,
+                now.day, now.hour, now.minute, now.second, now.millisecond);
+  return buffer;
 }
 
 std::string hexByte(uint8_t v) {
