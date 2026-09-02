@@ -1,0 +1,6 @@
+build/
+cmake-build-*/
+logs/
+*.ts
+*.log
+.DS_Store
