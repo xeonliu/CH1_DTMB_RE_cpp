@@ -6,6 +6,42 @@ forwards the demodulated MPEG-TS stream over UDP, raw UDP, and/or a `.ts` file.
 Firmware blobs extracted from the original Windows driver are embedded into the
 executable at build time.
 
+```mermaid
+flowchart LR
+  subgraph HW["Hardware - CH1 DTMB USB stick"]
+    RF["DTMB RF signal<br/>(antenna / cable)"] --> TUNER["MAX2165 tuner"]
+    TUNER --> DEMOD["LGS8GL5 demodulator<br/>MPEG-TS output"]
+    DEMOD --> BRIDGE["LME2510C USB bridge<br/>VID 0x3344 / PID 0x1120"]
+  end
+
+  subgraph USB["USB protocol layer (High Speed, via libusb)"]
+    CMDEP["Control pipe<br/>EP 0x01 OUT / EP 0x81 IN (Bulk)<br/>firmware download, I2C read/write, ACK"]
+    TSEP["TS pipe<br/>EP 0x88 IN (Bulk)<br/>continuous MPEG-TS byte stream"]
+    STSEP["Status pipe<br/>EP 0x8A IN (Interrupt)<br/>signal / lock status"]
+  end
+
+  subgraph APP["lme2510_stream (this program)"]
+    CTRL["Control plane: Receiver<br/>open device, init / tune, PID filter"]
+    LOOP["Data plane: StreamSession<br/>read EP 0x88 and align<br/>188-byte TS packets (TsPacketizer)"]
+    UDPS["UDP sink<br/>1316-byte datagrams<br/>(default 127.0.0.1:1234)"]
+    FILES["File sink<br/>write packetized .ts file"]
+    STAT["Status reader<br/>(optional --live-status)"]
+  end
+
+  subgraph DOWN["Downstream"]
+    VLC["VLC / ffplay / other TS apps<br/>listen on udp://@1234"]
+    FPLAY["VLC / TS-aware players<br/>open the saved .ts"]
+  end
+
+  CTRL <--> CMDEP <--> BRIDGE
+  BRIDGE --> TSEP --> LOOP
+  BRIDGE --> STSEP --> STAT
+  LOOP --> UDPS
+  LOOP --> FILES
+  UDPS --> VLC
+  FILES --> FPLAY
+```
+
 ## Supported hardware
 
 - CH1 DTMB stick with LME2510C bridge firmware.
