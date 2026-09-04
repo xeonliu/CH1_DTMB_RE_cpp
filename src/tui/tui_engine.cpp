@@ -212,6 +212,9 @@ void TuiEngine::scanFrequencies(const std::vector<int>& mhzList) {
   stopMonitorCapture();
   model_.setPhase("扫描准备…");
   for (const int mhz : mhzList) {
+    if (quit_) {
+      break;
+    }
     observeFrequency(mhz, false);
   }
   model_.setPhase("扫描完成");

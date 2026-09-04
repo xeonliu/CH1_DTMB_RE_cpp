@@ -76,7 +76,7 @@ struct TsMetricsSnapshot {
   double lossPct = 0.0;
 };
 
-/// Shared, thread-safe UI state.  The ncurses UI is the only reader; the
+/// Shared, thread-safe UI state.  The FTXUI UI is the only reader; the
 /// engine and its capture threads are the writers.
 class TuiModel {
  public:
@@ -133,6 +133,8 @@ class TuiModel {
   void addUdp(std::uint64_t bytes, std::uint64_t datagrams);
   void addRaw(std::uint64_t bytes, std::uint64_t datagrams);
   void addStatusSample(bool hit);
+  std::uint64_t statusHits() const;
+  std::uint64_t statusMisses() const;
   void resetCounters();
   TsMetricsSnapshot counters() const;
 

@@ -3,24 +3,34 @@
 ## macOS
 
 ```sh
-brew install libusb pkg-config cmake
+brew install libusb pkg-config ftxui cmake
 cmake -S . -B build
 cmake --build build
 ```
 
-The TUI uses the ncurses library shipped with macOS; no extra package is
-required.  Pass `-DLME2510_ENABLE_TUI=OFF` to build the plain CLI without it.
+The TUI (enabled by default on macOS/Linux) is written against FTXUI v7
+(`ftxui::component`).  `brew install ftxui` provides the CMake package; when
+it is not installed, CMake automatically downloads the pinned v7.0.3 release
+through FetchContent on the first configure (network access required).  Pass
+`-DLME2510_ENABLE_TUI=OFF` to build the plain CLI without it.
 
 ## Linux
 
 ```sh
-sudo apt install cmake build-essential pkg-config libusb-1.0-0-dev libncurses-dev
+sudo apt install cmake build-essential pkg-config libusb-1.0-0-dev
 cmake -S . -B build
 cmake --build build
 ```
 
-`libncurses-dev` is needed for the `--tui` build (enabled by default on
-macOS/Linux).  Disable it with `-DLME2510_ENABLE_TUI=OFF`.
+No system FTXUI package is required on Linux: CMake fetches the pinned v7.0.3
+source automatically when it cannot find an installed copy.  If your distro
+ships an FTXUI package, make sure it is v7 or newer before letting CMake pick
+it up; otherwise remove it and let the pinned FetchContent build be used.
+Disable the TUI with `-DLME2510_ENABLE_TUI=OFF`.
+
+The `windows-xp` CI job builds the host-native firmware generator with
+`-DLME2510_ENABLE_TUI=OFF` so the generator configure step does not download
+FTXUI; do the same for the local `build/host-gen` step below.
 
 ## Windows
 
@@ -51,7 +61,7 @@ ROOT="$PWD"
 XP_PREFIX="$ROOT/build/xp-libusb-prefix"
 
 # 1. Build a host-native copy of the firmware generator.
-cmake -S . -B build/host-gen -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build/host-gen -DCMAKE_BUILD_TYPE=Release -DLME2510_ENABLE_TUI=OFF
 cmake --build build/host-gen --target gen_firmware_embed
 
 # 2. Build the last XP-capable libusb release for i686 Windows.

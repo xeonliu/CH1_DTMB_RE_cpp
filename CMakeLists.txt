@@ -23,7 +23,7 @@ else()
   set(LME2510_ENABLE_TUI_DEFAULT ON)
 endif()
 option(LME2510_ENABLE_TUI
-       "Build the full-screen ncurses TUI (macOS/Linux only)"
+       "Build the full-screen FTXUI TUI (macOS/Linux only)"
        ${LME2510_ENABLE_TUI_DEFAULT})
 
 # --- Firmware embedding -----------------------------------------------------
@@ -95,9 +95,25 @@ if(LME2510_ENABLE_TUI)
     src/tui/tui_model.cpp
     src/tui/tui_engine.cpp
     src/tui/capture_session.cpp
-    src/tui/output_ring.cpp
     src/tui/tui_app.cpp)
-  find_package(Curses REQUIRED)
+  # Prefer an installed FTXUI (e.g. `brew install ftxui`); otherwise fetch the
+  # pinned release so the TUI stays buildable on a clean machine.
+  find_package(ftxui CONFIG QUIET)
+  if(NOT ftxui_FOUND)
+    message(STATUS "FTXUI not found on the system; downloading v7.0.3 source.")
+    include(FetchContent)
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
+      FetchContent_Declare(ftxui
+        URL https://github.com/ArthurSonzogni/FTXUI/releases/download/v7.0.3/source.tar.gz
+        URL_HASH SHA256=be506d647bf6eed2e7927f99ea080bcccff0938d9a35617756161d5b76df8b8a
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    else()
+      FetchContent_Declare(ftxui
+        URL https://github.com/ArthurSonzogni/FTXUI/releases/download/v7.0.3/source.tar.gz
+        URL_HASH SHA256=be506d647bf6eed2e7927f99ea080bcccff0938d9a35617756161d5b76df8b8a)
+    endif()
+    FetchContent_MakeAvailable(ftxui)
+  endif()
 endif()
 
 add_library(lme2510 STATIC ${LME2510_SOURCES})
@@ -108,8 +124,7 @@ target_include_directories(lme2510
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 if(LME2510_ENABLE_TUI)
-  target_link_libraries(lme2510 PUBLIC ${CURSES_LIBRARIES})
-  target_include_directories(lme2510 PUBLIC ${CURSES_INCLUDE_DIRS})
+  target_link_libraries(lme2510 PUBLIC ftxui::component)
   target_compile_definitions(lme2510 PUBLIC LME2510_ENABLE_TUI=1)
 endif()
 

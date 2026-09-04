@@ -360,6 +360,8 @@ void CaptureSession::statusLoop() {
       signal.snrRaw = parsed->snrRaw;
       signal.hi = parsed->hi;
       signal.lo = parsed->lo;
+      signal.hits = model_.statusHits();
+      signal.misses = model_.statusMisses();
       model_.setSignal(signal);
 
       const auto now = std::chrono::steady_clock::now();

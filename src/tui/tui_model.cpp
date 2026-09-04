@@ -230,6 +230,14 @@ void TuiModel::addRaw(std::uint64_t bytes, std::uint64_t datagrams) {
   counters_.rawDatagrams.fetch_add(datagrams, std::memory_order_relaxed);
 }
 
+std::uint64_t TuiModel::statusHits() const {
+  return statusHits_.load(std::memory_order_relaxed);
+}
+
+std::uint64_t TuiModel::statusMisses() const {
+  return statusMisses_.load(std::memory_order_relaxed);
+}
+
 void TuiModel::addStatusSample(bool hit) {
   if (hit) {
     statusHits_.fetch_add(1, std::memory_order_relaxed);

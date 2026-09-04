@@ -31,11 +31,13 @@ jobs:
 
       - name: Install libusb (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev libncurses-dev pkg-config
+        # FTXUI is fetched automatically by CMake (FetchContent) when it is not
+        # installed, so no system FTXUI package is needed here.
+        run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev pkg-config
 
       - name: Install libusb (macOS)
         if: runner.os == 'macOS'
-        run: brew install libusb pkg-config
+        run: brew install libusb pkg-config ftxui
 
       - name: Install libusb (Windows)
         if: runner.os == 'Windows'

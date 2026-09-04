@@ -20,7 +20,7 @@ class RegLogger;
 
 namespace tui {
 
-/// Background device/session controller for the ncurses TUI.  Owns all
+/// Background device/session controller for the FTXUI TUI.  Owns all
 /// long-running USB work so the UI thread only paints and reads input.
 class TuiEngine {
  public:
