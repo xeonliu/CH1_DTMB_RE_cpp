@@ -81,7 +81,7 @@ lme2510_stream [options]
   --status-log PATH     status/statistics log (default logs/stream-<time>.log)
   --reg-log PATH        register-operation log (default logs/regs-<time>.log)
   --usb-trace           include raw USB packets in the register log
-  --tui                 full-screen FTXUI UI (macOS/Linux)
+  --tui                 full-screen FTXUI UI (macOS/Linux, Windows MSVC)
   --fw1 PATH            override embedded stage-1 firmware
   --fw2 PATH            override embedded stage-2 firmware
 ```
@@ -137,9 +137,10 @@ that is actively being read.
 If no `--file` target is supplied, recording creates `record-<unix-time>.ts`
 in the current directory.
 
-`--tui` is only built on macOS/Linux (FTXUI v7; CMake fetches it automatically
-when it is not installed).  Windows builds keep the CLI behaviour and print an
-error if `--tui` is requested.
+`--tui` is built by default on macOS/Linux and on modern Windows when compiled
+with MSVC (FTXUI v7; CMake fetches it automatically when it is not installed).
+MinGW/Windows-XP builds keep the CLI behaviour and print an error if `--tui`
+is requested.
 
 ### Platform access
 
@@ -168,6 +169,10 @@ device (VID/PID `0x3344` / `0x1120`) with WinUSB or libusbK.  Run:
 ```powershell
 .\build\Release\lme2510_stream.exe --freq 618 --no-udp --file out.ts --seconds 10
 ```
+
+The x64 MSVC build also supports the interactive TUI (`--tui`); run it from a
+terminal that supports VT/ANSI output (Windows 10+ console or Windows
+Terminal).
 
 #### Windows XP
 

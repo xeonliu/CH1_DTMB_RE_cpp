@@ -11,19 +11,24 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 if(MSVC)
-  add_compile_options(/W4 /EHsc)
+  add_compile_options(/W4 /EHsc /utf-8)
 else()
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
 option(LME2510_BUILD_TOOLS "Build firmware embedding generator" ON)
-if(WIN32)
+# FTXUI v7 is cross-platform: the TUI builds on macOS/Linux and on modern
+# Windows with MSVC.  MinGW/Windows-XP cross builds stay CLI-only (FTXUI is
+# not validated for those toolchains there).
+if(MSVC)
+  set(LME2510_ENABLE_TUI_DEFAULT ON)
+elseif(WIN32)
   set(LME2510_ENABLE_TUI_DEFAULT OFF)
 else()
   set(LME2510_ENABLE_TUI_DEFAULT ON)
 endif()
 option(LME2510_ENABLE_TUI
-       "Build the full-screen FTXUI TUI (macOS/Linux only)"
+       "Build the full-screen FTXUI TUI (macOS/Linux and MSVC Windows)"
        ${LME2510_ENABLE_TUI_DEFAULT})
 
 # --- Firmware embedding -----------------------------------------------------
@@ -96,8 +101,9 @@ if(LME2510_ENABLE_TUI)
     src/tui/tui_engine.cpp
     src/tui/capture_session.cpp
     src/tui/tui_app.cpp)
-  # Prefer an installed FTXUI (e.g. `brew install ftxui`); otherwise fetch the
-  # pinned release so the TUI stays buildable on a clean machine.
+  # Prefer an installed FTXUI (e.g. `brew install ftxui` on macOS or the
+  # vcpkg `ftxui` port on Windows); otherwise fetch the pinned release so the
+  # TUI stays buildable on a clean machine.
   find_package(ftxui CONFIG QUIET)
   if(NOT ftxui_FOUND)
     message(STATUS "FTXUI not found on the system; downloading v7.0.3 source.")

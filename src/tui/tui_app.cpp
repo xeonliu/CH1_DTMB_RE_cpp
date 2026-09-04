@@ -103,7 +103,11 @@ std::string epgTimeText(std::uint64_t utcSeconds) {
   }
   const std::time_t time = static_cast<std::time_t>(utcSeconds);
   std::tm local{};
+#ifdef _WIN32
+  localtime_s(&local, &time);
+#else
   localtime_r(&time, &local);
+#endif
   char buffer[32];
   std::snprintf(buffer, sizeof(buffer), "%02d-%02d %02d:%02d",
                 local.tm_mon + 1, local.tm_mday, local.tm_hour,

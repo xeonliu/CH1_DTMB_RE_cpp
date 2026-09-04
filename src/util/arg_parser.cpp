@@ -32,7 +32,7 @@ Options:
   --status-log PATH    status log (default: logs/stream-<time>.log)
   --reg-log PATH       register log (default: logs/regs-<time>.log)
   --usb-trace          also log raw USB TX/RX packets
-  --tui                full-screen FTXUI UI (macOS/Linux)
+  --tui                full-screen FTXUI UI (macOS/Linux, Windows MSVC)
   --fw1 PATH           override embedded stage-1 firmware
   --fw2 PATH           override embedded stage-2 firmware
 )";

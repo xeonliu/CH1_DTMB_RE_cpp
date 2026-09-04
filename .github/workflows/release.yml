@@ -43,6 +43,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # FTXUI is fetched automatically by CMake (FetchContent) below.
           vcpkg install libusb:x64-windows
 
       - name: Configure

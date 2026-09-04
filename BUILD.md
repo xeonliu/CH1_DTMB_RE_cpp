@@ -35,7 +35,10 @@ FTXUI; do the same for the local `build/host-gen` step below.
 ## Windows
 
 Install [vcpkg](https://vcpkg.io), libusb, and CMake, then configure with the
-vcpkg toolchain:
+vcpkg toolchain.  With the MSVC toolchain (`-A x64`) the FTXUI TUI is enabled
+by default; CMake downloads the pinned FTXUI v7.0.3 source automatically when
+it is not installed, so `vcpkg install ftxui:x64-windows` is optional.  Pass
+`-DLME2510_ENABLE_TUI=OFF` for a CLI-only build.
 
 ```powershell
 vcpkg install libusb:x64-windows
@@ -43,6 +46,8 @@ cmake -S . -B build -A x64 `
   -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
 cmake --build build --config Release
 ```
+
+MinGW/Windows-XP builds stay CLI-only (the TUI defaults off there).
 
 ## Windows XP (32-bit)
 

@@ -80,7 +80,7 @@ int main(int argc, char** argv) {
 #else
     if (options.tui) {
       std::cerr << "error: --tui is not available in this build (enable "
-                   "LME2510_ENABLE_TUI on macOS/Linux)\n";
+                   "LME2510_ENABLE_TUI for macOS/Linux/MSVC-Windows)\n";
       return 2;
     }
 #endif
