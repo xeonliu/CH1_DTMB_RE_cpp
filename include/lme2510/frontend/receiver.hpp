@@ -37,6 +37,21 @@ class Receiver {
   /// Full configuration phase.  Returns the final lock status.
   bool runConfiguration();
 
+  /// Opens/initializes the device without tuning or enabling transport.
+  /// Safe to call once, followed by tuneTo()/commitPid*() calls.
+  bool initializeDevice();
+
+  /// Tunes an already-initialized receiver to *frequencyMhz* and runs the
+  /// demodulator lock acquisition (no PID-filter commit / traffic).
+  void tuneTo(int frequencyMhz);
+
+  /// Enables EP 0x8A/0x88 with the CLI-configured PID list (or all-pass).
+  void commitPidFilterAndSampleStatus();
+
+  /// Re-arms EP 0x8A/0x88 with the all-PID default filter without sampling.
+  void commitPidFilterDefaultAllPass();
+
+  int currentFrequencyMhz() const { return currentFrequencyMhz_; }
   UsbBridge& usbBridge() { return bridge_; }
   Max2165Tuner& tuner() { return tuner_; }
   Demodulator* demodulator() { return demod_.get(); }
@@ -46,8 +61,7 @@ class Receiver {
  private:
   void openLogged();
   void reopenAfterFirmwareDownload();
-  void commitPidFilterAndSampleStatus();
-  void initializeAndTune();
+  void initializeChip();
 
   ReceiverOptions options_;
   RegLogger* regLogger_;
@@ -60,6 +74,7 @@ class Receiver {
   std::unique_ptr<Demodulator> demod_;
   DemodChip chip_ = DemodChip::kLgs8Gl5;
   bool locked_ = false;
+  int currentFrequencyMhz_ = 0;
 };
 
 }  // namespace lme2510

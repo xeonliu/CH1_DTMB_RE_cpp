@@ -109,6 +109,19 @@ void Receiver::reopenAfterFirmwareDownload() {
 }
 
 bool Receiver::runConfiguration() {
+  initializeDevice();
+  tuneTo(options_.frequencyMhz);
+
+  // PID-filter commit enables EP 0x8A/0x88 traffic.
+  commitPidFilterAndSampleStatus();
+
+  std::cout << "\nLocked: " << (locked_ ? "true" : "false")
+            << " - forwarding TS on " << options_.frequencyMhz
+            << " MHz...\n";
+  return locked_;
+}
+
+bool Receiver::initializeDevice() {
   bridge_.setRegLogger(regLogger_);
 
   // 1. Open + firmware check/download.
@@ -147,19 +160,11 @@ bool Receiver::runConfiguration() {
     }
   }
 
-  // 2. Identification + orchestrated initialization/tuning.
-  initializeAndTune();
-
-  // 3. PID-filter commit enables EP 0x8A/0x88 traffic.
-  commitPidFilterAndSampleStatus();
-
-  std::cout << "\nLocked: " << (locked_ ? "true" : "false")
-            << " - forwarding TS on " << options_.frequencyMhz
-            << " MHz...\n";
-  return locked_;
+  initializeChip();
+  return true;
 }
 
-void Receiver::initializeAndTune() {
+void Receiver::initializeChip() {
   std::cout << "\n[Demodulator identification]\n";
   chip_ = Demodulator::identify(rawI2c_, 5, 0.5);
 
@@ -176,12 +181,19 @@ void Receiver::initializeAndTune() {
   tuner_.init();
 
   demod_->initAfterIdentify();
+}
+
+void Receiver::tuneTo(int frequencyMhz) {
+  if (!demod_) {
+    throw std::runtime_error("tuneTo() called before initializeDevice()");
+  }
   // Python's tune() begins with a demodulator soft reset before the MAX2165
   // register writes; keep the ordering identical by doing that reset here.
   demod_->softReset();
-  tuner_.tune(options_.frequencyMhz);
+  tuner_.tune(frequencyMhz);
 
   locked_ = demod_->lockAfterTune();
+  currentFrequencyMhz_ = frequencyMhz;
 }
 
 void Receiver::commitPidFilterAndSampleStatus() {
@@ -208,6 +220,10 @@ void Receiver::commitPidFilterAndSampleStatus() {
     emitStatusLine(statusLog_,
                    "STATUS EP 0x8A: no packet within 700 ms");
   }
+}
+
+void Receiver::commitPidFilterDefaultAllPass() {
+  bridge_.sendPidFilterDefaultAllPass();
 }
 
 }  // namespace lme2510

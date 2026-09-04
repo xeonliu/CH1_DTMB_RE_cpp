@@ -81,6 +81,7 @@ lme2510_stream [options]
   --status-log PATH     status/statistics log (default logs/stream-<time>.log)
   --reg-log PATH        register-operation log (default logs/regs-<time>.log)
   --usb-trace           include raw USB packets in the register log
+  --tui                 full-screen ncurses UI (macOS/Linux)
   --fw1 PATH            override embedded stage-1 firmware
   --fw2 PATH            override embedded stage-2 firmware
 ```
@@ -90,6 +91,9 @@ Examples:
 ```sh
 # TS to UDP 127.0.0.1:1234 (default)
 sudo ./build/lme2510_stream --freq 618
+
+# Interactive TUI: pick a frequency, watch signal, then stream/record
+sudo ./build/lme2510_stream --tui
 
 # Raw EP 0x88 frames to a separate diagnostic port
 sudo ./build/lme2510_stream --freq 618 --raw-udp 127.0.0.1:1235
@@ -101,6 +105,28 @@ sudo ./build/lme2510_stream --freq 554 --pids 0x0100,0x0101 --no-udp \
 
 Play the UDP stream in VLC with `udp://@1234`.  File captures are standard
 188-byte MPEG-TS and can be played by any TS-aware player.
+
+### TUI (`--tui`)
+
+The optional full-screen UI lets you:
+
+- Walk the Chinese DTMB UHF grid (474–858 MHz in 8 MHz steps), mark
+  frequencies with `Space`, scan the marked set with `S`, and tune a row with
+  `Enter`.
+- Watch live EP 0x8A signal strength/quality, register telemetry, TS
+  continuity-counter losses, resync/dropped-byte counters, and bit rates.
+- Switch into the service list (`C` from Monitor) once PAT/PMT tables are
+  parsed, choose a TV/radio service, and have UDP streaming and file recording
+  PID-filter that service.  `C` in the service list clears back to the whole
+  multiplex.
+- Toggle UDP streaming with `Space` and file recording with `R`.  If no
+  `--file` target is supplied, recording creates `record-<unix-time>.ts` in
+  the current directory.
+- Switch to a live command log (`Tab`) showing the CTRL/I2C commands sent to
+  the stick; it tails the `--reg-log` file.
+
+`--tui` is only built on macOS/Linux (ncurses).  Windows builds keep the CLI
+behaviour and print an error if `--tui` is requested.
 
 ### Platform access
 

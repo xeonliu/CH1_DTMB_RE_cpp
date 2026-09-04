@@ -24,7 +24,7 @@ jobs:
 
       - name: Install libusb (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev libncurses-dev pkg-config
 
       - name: Install libusb (macOS)
         if: runner.os == 'macOS'
@@ -80,7 +80,7 @@ jobs:
       # a native copy first and hand it to the cross CMake configure.
       - name: Build host firmware generator
         run: |
-          cmake -S . -B build/host-gen -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build/host-gen -DCMAKE_BUILD_TYPE=Release -DLME2510_ENABLE_TUI=OFF
           cmake --build build/host-gen --target gen_firmware_embed --parallel 2
 
       - name: Build libusb 1.0.23 (last XP-compatible release)

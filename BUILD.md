@@ -8,13 +8,19 @@ cmake -S . -B build
 cmake --build build
 ```
 
+The TUI uses the ncurses library shipped with macOS; no extra package is
+required.  Pass `-DLME2510_ENABLE_TUI=OFF` to build the plain CLI without it.
+
 ## Linux
 
 ```sh
-sudo apt install cmake build-essential pkg-config libusb-1.0-0-dev
+sudo apt install cmake build-essential pkg-config libusb-1.0-0-dev libncurses-dev
 cmake -S . -B build
 cmake --build build
 ```
+
+`libncurses-dev` is needed for the `--tui` build (enabled by default on
+macOS/Linux).  Disable it with `-DLME2510_ENABLE_TUI=OFF`.
 
 ## Windows
 

@@ -17,6 +17,14 @@ else()
 endif()
 
 option(LME2510_BUILD_TOOLS "Build firmware embedding generator" ON)
+if(WIN32)
+  set(LME2510_ENABLE_TUI_DEFAULT OFF)
+else()
+  set(LME2510_ENABLE_TUI_DEFAULT ON)
+endif()
+option(LME2510_ENABLE_TUI
+       "Build the full-screen ncurses TUI (macOS/Linux only)"
+       ${LME2510_ENABLE_TUI_DEFAULT})
 
 # --- Firmware embedding -----------------------------------------------------
 set(FW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/fw")
@@ -73,6 +81,8 @@ set(LME2510_SOURCES
   src/tuner/max2165.cpp
   src/frontend/receiver.cpp
   src/stream/ts_packetizer.cpp
+  src/stream/ts_loss.cpp
+  src/stream/program_guide.cpp
   src/stream/stream_session.cpp
   src/stream/sinks.cpp
   src/net/udp_socket.cpp
@@ -80,12 +90,28 @@ set(LME2510_SOURCES
   src/util/arg_parser.cpp
   src/util/platform.cpp)
 
+if(LME2510_ENABLE_TUI)
+  list(APPEND LME2510_SOURCES
+    src/tui/tui_model.cpp
+    src/tui/tui_engine.cpp
+    src/tui/capture_session.cpp
+    src/tui/output_ring.cpp
+    src/tui/tui_app.cpp)
+  find_package(Curses REQUIRED)
+endif()
+
 add_library(lme2510 STATIC ${LME2510_SOURCES})
 add_dependencies(lme2510 embedded_firmware)
 target_include_directories(lme2510
   PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+if(LME2510_ENABLE_TUI)
+  target_link_libraries(lme2510 PUBLIC ${CURSES_LIBRARIES})
+  target_include_directories(lme2510 PUBLIC ${CURSES_INCLUDE_DIRS})
+  target_compile_definitions(lme2510 PUBLIC LME2510_ENABLE_TUI=1)
+endif()
 
 # --- libusb -----------------------------------------------------------------
 set(LIBUSB_INCLUDE_DIRS "")
