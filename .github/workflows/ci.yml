@@ -127,3 +127,30 @@ jobs:
         with:
           name: lme2510-stream-xp-x86
           path: lme2510_stream-xp-x86.exe
+
+  # The official Termux Docker image runs natively on GitHub's ARM64 runners,
+  # which lets CI compile with Termux's clang/libc++ and its patched libusb
+  # exactly as documented in BUILD.md.  USB/OTG runtime behavior still needs
+  # a real Android device, so this job only verifies the build and --help.
+  termux:
+    name: Termux (aarch64)
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build in Termux container
+        run: |
+          tar --exclude=.git -C "$GITHUB_WORKSPACE" -cf - . | docker run --rm -i \
+            --privileged \
+            termux/termux-docker:latest bash -lc '
+              set -e
+              pkg update -y
+              pkg install -y clang cmake ninja pkg-config libusb
+              mkdir -p src
+              tar -C src -xf -
+              cmake -S "$PWD/src" -B "$PWD/build" -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release
+              cmake --build "$PWD/build" --parallel 2
+              "$PWD/build/lme2510_stream" --help
+            '

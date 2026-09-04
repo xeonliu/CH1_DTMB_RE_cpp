@@ -16,6 +16,36 @@ cmake -S . -B build
 cmake --build build
 ```
 
+## Termux (Android)
+
+Termux ships a native clang/CMake toolchain and a libusb package patched for
+`termux-usb`, so the project builds directly on an aarch64 phone/tablet:
+
+```sh
+pkg install clang cmake ninja pkg-config libusb
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+No toolchain file or host-side firmware generator is needed because this is a
+native on-device build.  Running the result on a non-rooted device requires
+`termux-usb`; see README → “Platform access”.
+
+Pre-built aarch64 binaries (`lme2510_stream-termux-aarch64`) are attached to
+each GitHub Release.  Install the runtime dependencies, download the file into
+Termux, and run it through `termux-usb`:
+
+```sh
+pkg install libusb termux-api
+curl -fLO https://github.com/xeonliu/CH1_DTMB_RE_cpp/releases/latest/download/lme2510_stream-termux-aarch64
+chmod +x lme2510_stream-termux-aarch64
+termux-usb -l
+termux-usb -r -E -e ./lme2510_stream-termux-aarch64 --freq 618 /dev/bus/usb/001/002
+```
+
+The binary links against Termux's libc++ and libusb, so keep Termux packages
+updated (`pkg upgrade`) after a major Termux update.
+
 ## Windows
 
 Install [vcpkg](https://vcpkg.io), libusb, and CMake, then configure with the

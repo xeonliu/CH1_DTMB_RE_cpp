@@ -121,6 +121,36 @@ If the device is not readable by your user, install a udev rule or run with
 SUBSYSTEM=="usb", ATTR{idVendor}=="3344", ATTR{idProduct}=="1120", MODE="0666"
 ```
 
+#### Android / Termux
+
+Termux users can download the pre-built aarch64 binary from
+[Releases](https://github.com/xeonliu/CH1_DTMB_RE_cpp/releases); building from
+source is documented in [BUILD.md](BUILD.md):
+
+```sh
+pkg install libusb termux-api
+curl -fLO https://github.com/xeonliu/CH1_DTMB_RE_cpp/releases/latest/download/lme2510_stream-termux-aarch64
+chmod +x lme2510_stream-termux-aarch64
+```
+
+Non-rooted Android cannot open USB devices directly.  With the [Termux:API](
+https://wiki.termux.com/wiki/Termux:API) plugin installed and the stick on an
+OTG adapter, list the device, then run under `termux-usb` so libusb receives
+the Android USB file descriptor (the API plugin asks for USB permission on
+first use):
+
+```sh
+termux-usb -l                                  # e.g. /dev/bus/usb/001/002
+termux-usb -r -E -e \
+  "./lme2510_stream-termux-aarch64 --freq 618 --no-udp --file out.ts --seconds 10" \
+  /dev/bus/usb/001/002
+```
+
+Termux's libusb understands the `-E` flag (it exports `TERMUX_USB_FD`), so no
+wrapper code is required.  Rooted devices can instead run the binary directly
+with `sudo`.  Keep Termux packages updated after major Termux upgrades
+(`pkg upgrade`), and verify sustained TS throughput on the actual device.
+
 #### Windows
 
 Use [Zadig](https://zadig.akeo.ie) to replace the stock Windows driver for the
