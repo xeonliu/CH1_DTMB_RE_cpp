@@ -119,6 +119,10 @@ The optional full-screen UI lets you:
   parsed, choose a TV/radio service, and have UDP streaming and file recording
   PID-filter that service.  `C` in the service list clears back to the whole
   multiplex.
+- Browse the EPG (`E` in the service list, or `4` once monitoring): service
+  names come from SDT and the now/next plus scheduled programme list from the
+  EIT.  Chinese DTMB names are GB2312 and are converted to UTF-8 with a built-in
+  table, so no iconv dependency is needed.
 - Toggle UDP streaming with `Space` and file recording with `R`.  If no
   `--file` target is supplied, recording creates `record-<unix-time>.ts` in
   the current directory.

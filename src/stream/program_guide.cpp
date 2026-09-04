@@ -1,9 +1,9 @@
 #include "lme2510/stream/program_guide.hpp"
 
 #include <algorithm>
-#include <cstring>
 #include <utility>
 
+#include "gb2312_tab.hpp"
 #include "lme2510/stream/ts_packetizer.hpp"
 
 namespace lme2510 {
@@ -12,10 +12,18 @@ namespace {
 
 constexpr std::uint16_t kPatPid = 0x0000;
 constexpr std::uint16_t kSdtPid = 0x0011;
+constexpr std::uint16_t kEitPid = 0x0012;
+
+/// Unix epoch (1970-01-01) expressed as an MJD day count.
+constexpr std::uint16_t kEpochMjd = 40587;
 
 std::uint16_t be16(const std::uint8_t* bytes) {
   return static_cast<std::uint16_t>((static_cast<std::uint16_t>(bytes[0]) << 8) |
                                     bytes[1]);
+}
+
+int bcdByte(std::uint8_t value) {
+  return ((value >> 4) & 0x0F) * 10 + (value & 0x0F);
 }
 
 bool extractPayload(const std::uint8_t* packet, const std::uint8_t** payload,
@@ -43,12 +51,85 @@ bool extractPayload(const std::uint8_t* packet, const std::uint8_t** payload,
   return true;
 }
 
-std::string bytesToString(const std::uint8_t* data, std::size_t size) {
+void appendUtf8(std::string& out, std::uint32_t codePoint) {
+  if (codePoint < 0x80) {
+    out.push_back(static_cast<char>(codePoint));
+  } else if (codePoint < 0x800) {
+    out.push_back(static_cast<char>(0xC0 | (codePoint >> 6)));
+    out.push_back(static_cast<char>(0x80 | (codePoint & 0x3F)));
+  } else {
+    out.push_back(static_cast<char>(0xE0 | (codePoint >> 12)));
+    out.push_back(static_cast<char>(0x80 | ((codePoint >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (codePoint & 0x3F)));
+  }
+}
+
+bool validUtf8(const std::uint8_t* data, std::size_t size) {
+  std::size_t index = 0;
+  while (index < size) {
+    const std::uint8_t byte = data[index];
+    if (byte < 0x80) {
+      ++index;
+      continue;
+    }
+    std::size_t extra = 0;
+    if ((byte & 0xE0) == 0xC0) {
+      extra = 1;
+    } else if ((byte & 0xF0) == 0xE0) {
+      extra = 2;
+    } else if ((byte & 0xF8) == 0xF0) {
+      extra = 3;
+    } else {
+      return false;
+    }
+    if (index + extra >= size) {
+      return false;
+    }
+    for (std::size_t offset = 1; offset <= extra; ++offset) {
+      if ((data[index + offset] & 0xC0) != 0x80) {
+        return false;
+      }
+    }
+    index += extra + 1;
+  }
+  return true;
+}
+
+/// Decodes SI text.  Modern DVB-SI uses UTF-8, while Chinese DTMB EPG/service
+/// names are usually GB2312/GBK ("chi" language tag).  Try strict UTF-8 first
+/// and fall back to a built-in GBK lookup table so no iconv dependency is
+/// needed.  Unmappable bytes become '?'.
+std::string decodeText(const std::uint8_t* data, std::size_t size) {
+  if (size == 0) {
+    return {};
+  }
+  if (validUtf8(data, size)) {
+    return std::string(reinterpret_cast<const char*>(data), size);
+  }
   std::string out;
-  out.reserve(size);
-  for (std::size_t index = 0; index < size; ++index) {
-    const char byte = static_cast<char>(data[index]);
-    out.push_back(byte == '\0' ? ' ' : byte);
+  out.reserve(size * 2);
+  for (std::size_t index = 0; index < size;) {
+    const std::uint8_t byte = data[index];
+    if (byte < 0x80) {
+      out.push_back(static_cast<char>(byte));
+      ++index;
+      continue;
+    }
+    if (index + 1 < size) {
+      const std::uint8_t hi = byte;
+      const std::uint8_t lo = data[index + 1];
+      if (hi >= 0xA1 && hi <= 0xFE && lo >= 0xA1 && lo <= 0xFE) {
+        const std::uint16_t codePoint =
+            detail::kGb2312ToUnicode[hi - 0xA1][lo - 0xA1];
+        if (codePoint != 0) {
+          appendUtf8(out, codePoint);
+          index += 2;
+          continue;
+        }
+      }
+    }
+    out.push_back('?');
+    ++index;
   }
   return out;
 }
@@ -59,7 +140,7 @@ void ProgramGuide::feedPacket(const std::uint8_t* packet) {
   const std::uint16_t pid =
       static_cast<std::uint16_t>(((packet[1] & 0x1F) << 8) | packet[2]);
 
-  bool collect = pid == kPatPid || pid == kSdtPid;
+  bool collect = pid == kPatPid || pid == kSdtPid || pid == kEitPid;
   if (!collect) {
     for (const auto& item : programs_) {
       if (item.second.pmtPid == pid) {
@@ -91,6 +172,7 @@ void ProgramGuide::feed(const std::uint8_t* packets, std::size_t bytes) {
 void ProgramGuide::clear() {
   sections_.clear();
   programs_.clear();
+  epg_.clear();
   services_.clear();
   ++version_;
 }
@@ -214,7 +296,7 @@ void ProgramGuide::tryParseSection(std::uint16_t pid) {
             const std::size_t nameStart = nameOffset + 1;
             if (nameStart + nameLength <= dataEnd) {
               const std::string name =
-                  bytesToString(bytes.data() + nameStart, nameLength);
+                  decodeText(bytes.data() + nameStart, nameLength);
               if (info.name != name) {
                 info.name = name;
                 changed = true;
@@ -239,8 +321,87 @@ void ProgramGuide::tryParseSection(std::uint16_t pid) {
       ++version_;
       rebuild();
     }
+  } else if (pid == kEitPid && tableId >= 0x4E && tableId <= 0x6F &&
+             total >= 18) {
+    parseEit(bytes.data(), total);
   }
   bytes.clear();
+}
+
+void ProgramGuide::parseEit(const std::uint8_t* bytes, std::size_t size) {
+  if (size < 18) {
+    return;
+  }
+  const std::uint16_t serviceId = be16(bytes + 3);
+  // Section bytes end with a 4-byte CRC; never walk into it.
+  const std::size_t dataEnd = size - 4;
+  std::size_t offset = 14;
+  while (offset + 12 <= dataEnd) {
+    const std::size_t descriptorsLength =
+        be16(bytes + offset + 10) & 0x0FFF;
+    const std::size_t eventEnd = offset + 12 + descriptorsLength;
+    if (eventEnd > dataEnd) {
+      break;
+    }
+
+    std::string name;
+    std::size_t cursor = offset + 12;
+    while (cursor + 2 <= eventEnd) {
+      const std::uint8_t tag = bytes[cursor];
+      const std::size_t length = bytes[cursor + 1];
+      const std::size_t descriptorEnd = cursor + 2 + length;
+      if (descriptorEnd > eventEnd) {
+        break;
+      }
+      if (tag == 0x4D && length >= 6) {
+        // short_event_descriptor: tag, len, 3-byte language, name length,
+        // name, text length, text.
+        const std::size_t nameLength = bytes[cursor + 5];
+        const std::size_t nameStart = cursor + 6;
+        if (nameStart + nameLength <= descriptorEnd) {
+          name = decodeText(bytes + nameStart, nameLength);
+        }
+      }
+      cursor = descriptorEnd;
+    }
+
+    EpgEvent event;
+    event.eventId = be16(bytes + offset);
+    const std::uint16_t mjd = be16(bytes + offset + 2);
+    const std::uint64_t hms =
+        static_cast<std::uint64_t>(bcdByte(bytes[offset + 4])) * 3600 +
+        static_cast<std::uint64_t>(bcdByte(bytes[offset + 5])) * 60 +
+        static_cast<std::uint64_t>(bcdByte(bytes[offset + 6]));
+    if (mjd >= kEpochMjd) {
+      event.startUtc =
+          (static_cast<std::uint64_t>(mjd) - kEpochMjd) * 86400ULL + hms;
+    }
+    event.durationSec =
+        static_cast<std::uint32_t>(bcdByte(bytes[offset + 7])) * 3600 +
+        static_cast<std::uint32_t>(bcdByte(bytes[offset + 8])) * 60 +
+        static_cast<std::uint32_t>(bcdByte(bytes[offset + 9]));
+    event.name = std::move(name);
+    addEpgEvent(serviceId, event);
+
+    offset = eventEnd;
+  }
+}
+
+void ProgramGuide::addEpgEvent(std::uint16_t serviceId,
+                               const EpgEvent& event) {
+  constexpr std::size_t kMaxEventsPerService = 512;
+  std::vector<EpgEvent>& events = epg_[serviceId];
+  const bool exists = std::any_of(
+      events.begin(), events.end(), [&event](const EpgEvent& other) {
+        return other.eventId == event.eventId &&
+               other.startUtc == event.startUtc;
+      });
+  if (exists || events.size() >= kMaxEventsPerService) {
+    return;
+  }
+  events.push_back(event);
+  ++version_;
+  rebuild();
 }
 
 void ProgramGuide::rebuild() {
@@ -261,7 +422,15 @@ void ProgramGuide::rebuild() {
                        : info.name;
     service.typeName =
         info.typeName.empty() ? "Program" : info.typeName;
-    services_.push_back(service);
+    service.events = epg_[program];
+    std::sort(service.events.begin(), service.events.end(),
+              [](const EpgEvent& left, const EpgEvent& right) {
+                if (left.startUtc != right.startUtc) {
+                  return left.startUtc < right.startUtc;
+                }
+                return left.eventId < right.eventId;
+              });
+    services_.push_back(std::move(service));
   }
   std::sort(services_.begin(), services_.end(),
             [](const MuxService& left, const MuxService& right) {

@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <deque>
 #include <fstream>
 #include <iostream>
@@ -20,7 +21,7 @@ namespace lme2510::tui {
 
 namespace {
 
-enum class View { kFrequencies, kMonitor, kServices, kCommands };
+enum class View { kFrequencies, kMonitor, kServices, kEpg, kCommands };
 
 std::vector<int> defaultFrequencyList() {
   std::vector<int> out;
@@ -82,8 +83,11 @@ void drawTitleAndStatus(View view) {
     case View::kServices:
       title = "3 Services";
       break;
+    case View::kEpg:
+      title = "4 EPG";
+      break;
     case View::kCommands:
-      title = "4 Commands";
+      title = "5 Commands";
       break;
   }
   attrset(A_BOLD);
@@ -169,6 +173,46 @@ void drawFrequencies(const TuiModel& model, std::size_t cursor) {
                "Tab: switch window   Q: quit   Up/Down: move");
 }
 
+std::string epgClock(std::uint64_t utc) {
+  if (utc == 0) {
+    return "-- --:--";
+  }
+  const std::time_t when = static_cast<std::time_t>(utc);
+  struct tm local {};
+  localtime_r(&when, &local);
+  char buffer[16];
+  std::strftime(buffer, sizeof(buffer), "%m-%d %H:%M", &local);
+  return buffer;
+}
+
+std::string epgDuration(std::uint32_t seconds) {
+  if (seconds == 0) {
+    return "";
+  }
+  const unsigned int hours = seconds / 3600;
+  const unsigned int minutes = (seconds % 3600) / 60;
+  char buffer[16];
+  if (hours > 0) {
+    std::snprintf(buffer, sizeof(buffer), "%uh%02um", hours, minutes);
+  } else {
+    std::snprintf(buffer, sizeof(buffer), "%um", minutes);
+  }
+  return buffer;
+}
+
+/// Truncates a UTF-8 string to at most width bytes without splitting a
+/// multi-byte character at the tail.
+std::string fitUtf8(const std::string& text, std::size_t width) {
+  if (text.size() <= width) {
+    return text;
+  }
+  std::size_t end = width;
+  while (end > 0 && (static_cast<std::uint8_t>(text[end]) & 0xC0) == 0x80) {
+    --end;
+  }
+  return text.substr(0, end);
+}
+
 void drawServices(const TuiModel& model, std::size_t cursor,
                   int currentMhz) {
   const std::vector<MuxService> services = model.services();
@@ -228,7 +272,100 @@ void drawServices(const TuiModel& model, std::size_t cursor,
   }
 
   drawHelpLine(LINES - 3,
-               "Enter: stream/record this service   C: clear -> whole mux");
+               "Enter: stream/record this service   E: EPG   C: clear mux");
+  drawHelpLine(LINES - 2, "F: frequency list   Tab: switch window   Q: quit");
+}
+
+void drawEpg(const TuiModel& model, std::size_t serviceIndex,
+             std::size_t scroll) {
+  const std::vector<MuxService> services = model.services();
+  const ServiceSelectionSnapshot selected = model.selectedService();
+  clearLine(2);
+  if (services.empty()) {
+    mvprintw(2, 1,
+             "No service tables yet - check lock/signal in Monitor "
+             "(waiting for PAT/SDT).");
+    drawHelpLine(LINES - 3, "F: frequency list   Tab: switch   Q: quit");
+    drawHelpLine(LINES - 2,
+                 "No EPG yet - keep monitoring so EIT sections arrive.");
+    return;
+  }
+  if (serviceIndex >= services.size()) {
+    serviceIndex = services.size() - 1;
+  }
+  const MuxService& service = services[serviceIndex];
+  const bool streaming = selected.active &&
+                         selected.programNumber == service.programNumber;
+
+  char header[600];
+  std::snprintf(header, sizeof(header), "%d MHz - %s (prog %u, %s)   %zu "
+                                        "event(s)%s",
+                model.currentMhz(), service.name.c_str(),
+                static_cast<unsigned>(service.programNumber),
+                service.typeName.c_str(), service.events.size(),
+                streaming ? "   [streaming]" : "");
+  attrset(A_BOLD);
+  if (COLS > 2) {
+    mvaddnstr(2, 1,
+              fitUtf8(header, static_cast<std::size_t>(COLS - 2)).c_str(),
+              COLS - 2);
+  }
+  attroff(A_BOLD);
+
+  const std::time_t now = std::time(nullptr);
+  if (service.events.empty()) {
+    mvprintw(5, 1,
+             "No EIT/EPG data for this service yet.  Keep monitoring so the "
+             "EIT table arrives.");
+    drawHelpLine(LINES - 3,
+                 "<-/-> channel   C: services   F: frequencies");
+    drawHelpLine(LINES - 2, "Tab: switch window   Q: quit");
+    return;
+  }
+
+  const std::size_t rows =
+      static_cast<std::size_t>(std::max(0, LINES - 7));
+  const std::size_t safeScroll =
+      std::min(scroll, service.events.size() > rows
+                           ? service.events.size() - rows
+                           : std::size_t(0));
+  const std::size_t end = service.events.size();
+  const std::size_t start = safeScroll;
+
+  clearLine(3);
+  attrset(A_BOLD);
+  mvprintw(3, 1, "%-5s %-13s %-8s %s", "", "start (local)", "len",
+           "programme");
+  attroff(A_BOLD);
+  int y = 4;
+  for (std::size_t index = start; index < end && y < LINES - 4;
+       ++index, ++y) {
+    const EpgEvent& event = service.events[index];
+    const bool onAir =
+        event.startUtc <= static_cast<std::uint64_t>(now) &&
+        now < static_cast<std::time_t>(event.startUtc + event.durationSec);
+    clearLine(y);
+    if (onAir) {
+      attrset(A_BOLD);
+    }
+    mvprintw(y, 1, "%-5s", onAir ? "NOW" : "");
+    mvprintw(y, 6, "%-13s", epgClock(event.startUtc).c_str());
+    mvprintw(y, 20, "%-8s", epgDuration(event.durationSec).c_str());
+    const int nameX = 29;
+    if (nameX < COLS) {
+      mvaddnstr(y, nameX,
+                fitUtf8(event.name, static_cast<std::size_t>(COLS - nameX - 1))
+                    .c_str(),
+                COLS - nameX - 1);
+    }
+    if (onAir) {
+      attroff(A_BOLD);
+    }
+  }
+
+  drawHelpLine(LINES - 3,
+               "<-/-> channel   Up/Down: scroll   Enter: play service   "
+               "C: services");
   drawHelpLine(LINES - 2, "F: frequency list   Tab: switch window   Q: quit");
 }
 
@@ -421,6 +558,8 @@ int runTui(const Options& options, RegLogger& regLogger,
   View view = View::kFrequencies;
   std::size_t cursor = 0;
   std::size_t serviceCursor = 0;
+  std::size_t epgService = 0;
+  std::size_t epgScroll = 0;
   std::size_t commandScroll = 0;
   std::deque<std::string> commandLines;
   bool pendingTune = false;
@@ -452,6 +591,9 @@ int runTui(const Options& options, RegLogger& regLogger,
         case View::kServices:
           drawServices(model, serviceCursor, model.currentMhz());
           break;
+        case View::kEpg:
+          drawEpg(model, epgService, epgScroll);
+          break;
         case View::kCommands:
           drawCommands(model, options, commandLines, commandScroll);
           break;
@@ -470,8 +612,9 @@ int runTui(const Options& options, RegLogger& regLogger,
     if (key == '\t') {
       const View startView = view;
       do {
-        view = static_cast<View>((static_cast<int>(view) + 1) % 4);
-      } while ((view == View::kMonitor || view == View::kServices) &&
+        view = static_cast<View>((static_cast<int>(view) + 1) % 5);
+      } while ((view == View::kMonitor || view == View::kServices ||
+                view == View::kEpg) &&
                !model.monitoring() && view != startView);
       continue;
     }
@@ -487,7 +630,12 @@ int runTui(const Options& options, RegLogger& regLogger,
       view = View::kServices;
       continue;
     }
-    if (key == '4') {
+    if (key == '4' && model.monitoring()) {
+      view = View::kEpg;
+      epgScroll = 0;
+      continue;
+    }
+    if (key == '5') {
       view = View::kCommands;
       commandScroll = 0;
       continue;
@@ -579,10 +727,53 @@ int runTui(const Options& options, RegLogger& regLogger,
           pendingService = true;
           pendingProgram = services[serviceCursor].programNumber;
           engine.requestSelectService(pendingProgram);
+        } else if (key == 'e' || key == 'E') {
+          epgService = serviceCursor;
+          epgScroll = 0;
+          view = View::kEpg;
         } else if (key == 'c' || key == 'C' || key == 27 /* ESC */) {
           engine.requestClearService();
           pendingService = false;
           view = View::kMonitor;
+        } else if (key == 'f' || key == 'F') {
+          view = View::kFrequencies;
+        }
+        break;
+      }
+      case View::kEpg: {
+        if (model.busy() || !model.monitoring()) {
+          break;
+        }
+        const std::vector<MuxService> services = model.services();
+        if (services.empty()) {
+          if (key == 'f' || key == 'F') {
+            view = View::kFrequencies;
+          }
+          break;
+        }
+        if (epgService >= services.size()) {
+          epgService = services.size() - 1;
+        }
+        const std::size_t eventCount =
+            services[epgService].events.size();
+        if (key == KEY_LEFT || key == 'h') {
+          epgService = epgService == 0 ? services.size() - 1 : epgService - 1;
+          epgScroll = 0;
+        } else if (key == KEY_RIGHT || key == 'l') {
+          epgService = (epgService + 1) % services.size();
+          epgScroll = 0;
+        } else if (key == KEY_UP || key == 'k') {
+          epgScroll = std::min(epgScroll + 1, eventCount);
+        } else if (key == KEY_DOWN || key == 'j') {
+          epgScroll = epgScroll == 0 ? 0 : epgScroll - 1;
+        } else if (key == '\n' || key == KEY_ENTER || key == '\r' ||
+                   key == ' ') {
+          pendingService = true;
+          pendingProgram = services[epgService].programNumber;
+          engine.requestSelectService(pendingProgram);
+        } else if (key == 'c' || key == 'C' || key == 27 /* ESC */) {
+          serviceCursor = epgService;
+          view = View::kServices;
         } else if (key == 'f' || key == 'F') {
           view = View::kFrequencies;
         }
