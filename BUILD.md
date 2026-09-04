@@ -3,10 +3,16 @@
 ## macOS
 
 ```sh
-brew install libusb pkg-config cmake
+brew install libusb pkg-config ftxui cmake
 cmake -S . -B build
 cmake --build build
 ```
+
+The TUI (enabled by default on macOS/Linux) is written against FTXUI v7
+(`ftxui::component`).  `brew install ftxui` provides the CMake package; when
+it is not installed, CMake automatically downloads the pinned v7.0.3 release
+through FetchContent on the first configure (network access required).  Pass
+`-DLME2510_ENABLE_TUI=OFF` to build the plain CLI without it.
 
 ## Linux
 
@@ -16,6 +22,15 @@ cmake -S . -B build
 cmake --build build
 ```
 
+No system FTXUI package is required on Linux: CMake fetches the pinned v7.0.3
+source automatically when it cannot find an installed copy.  If your distro
+ships an FTXUI package, make sure it is v7 or newer before letting CMake pick
+it up; otherwise remove it and let the pinned FetchContent build be used.
+Disable the TUI with `-DLME2510_ENABLE_TUI=OFF`.
+
+The `windows-xp` CI job builds the host-native firmware generator with
+`-DLME2510_ENABLE_TUI=OFF` so the generator configure step does not download
+FTXUI; do the same for the local `build/host-gen` step below.
 ## Termux (Android)
 
 Termux ships a native clang/CMake toolchain and a libusb package patched for
@@ -49,7 +64,10 @@ updated (`pkg upgrade`) after a major Termux update.
 ## Windows
 
 Install [vcpkg](https://vcpkg.io), libusb, and CMake, then configure with the
-vcpkg toolchain:
+vcpkg toolchain.  With the MSVC toolchain (`-A x64`) the FTXUI TUI is enabled
+by default; CMake downloads the pinned FTXUI v7.0.3 source automatically when
+it is not installed, so `vcpkg install ftxui:x64-windows` is optional.  Pass
+`-DLME2510_ENABLE_TUI=OFF` for a CLI-only build.
 
 ```powershell
 vcpkg install libusb:x64-windows
@@ -57,6 +75,8 @@ cmake -S . -B build -A x64 `
   -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
 cmake --build build --config Release
 ```
+
+MinGW/Windows-XP builds stay CLI-only (the TUI defaults off there).
 
 ## Windows XP (32-bit)
 
@@ -75,7 +95,7 @@ ROOT="$PWD"
 XP_PREFIX="$ROOT/build/xp-libusb-prefix"
 
 # 1. Build a host-native copy of the firmware generator.
-cmake -S . -B build/host-gen -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build/host-gen -DCMAKE_BUILD_TYPE=Release -DLME2510_ENABLE_TUI=OFF
 cmake --build build/host-gen --target gen_firmware_embed
 
 # 2. Build the last XP-capable libusb release for i686 Windows.

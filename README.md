@@ -32,7 +32,7 @@ flowchart LR
     LOOP["Data plane: StreamSession<br/>read EP 0x88 and align<br/>188-byte TS packets (TsPacketizer)"]
     UDPS["UDP sink<br/>1316-byte datagrams<br/>(default 127.0.0.1:1234)"]
     FILES["File sink<br/>write packetized .ts file"]
-    STAT["Status reader<br/>(optional --live-status)"]
+    STAT["Status reader<br/>EP 0x8A reader thread<br/>(CLI --live-status / TUI)"]
   end
 
   subgraph DOWN["Downstream"]
@@ -81,6 +81,7 @@ lme2510_stream [options]
   --status-log PATH     status/statistics log (default logs/stream-<time>.log)
   --reg-log PATH        register-operation log (default logs/regs-<time>.log)
   --usb-trace           include raw USB packets in the register log
+  --tui                 full-screen FTXUI UI (macOS/Linux, Windows MSVC)
   --fw1 PATH            override embedded stage-1 firmware
   --fw2 PATH            override embedded stage-2 firmware
 ```
@@ -90,6 +91,9 @@ Examples:
 ```sh
 # TS to UDP 127.0.0.1:1234 (default)
 sudo ./build/lme2510_stream --freq 618
+
+# Interactive TUI: pick a frequency, watch signal, then stream/record
+sudo ./build/lme2510_stream --tui
 
 # Raw EP 0x88 frames to a separate diagnostic port
 sudo ./build/lme2510_stream --freq 618 --raw-udp 127.0.0.1:1235
@@ -101,6 +105,42 @@ sudo ./build/lme2510_stream --freq 554 --pids 0x0100,0x0101 --no-udp \
 
 Play the UDP stream in VLC with `udp://@1234`.  File captures are standard
 188-byte MPEG-TS and can be played by any TS-aware player.
+
+### TUI (`--tui`)
+
+The optional full-screen FTXUI interface has four pages (`1`/`2`/`3`/`4`):
+
+- `[1 频率页]` — walk the Chinese DTMB UHF grid (474–858 MHz in 8 MHz steps),
+  mark frequencies with `Space`, toggle all with `A`, scan the marked set with
+  `S`, and tune a row with `Enter`.  Live signal rows appear at the bottom
+  while monitoring.
+- `[2 控制台]` — entered automatically after tuning.  The left column lists the
+  services parsed from PAT/PMT/SDT; the right pane toggles between output
+  control and service detail with `Tab`.  `Space` toggles UDP streaming, `R`
+  toggles file recording, `Enter` selects the highlighted service (streaming
+  and recording then PID-filter that service), `C` clears back to the whole
+  multiplex, and `E` opens the EPG page for the highlighted service.
+- `[3 节目单]` — EPG of the selected service, decoded from EIT.  Service names
+  come from SDT and event names from EIT; Chinese DTMB text is GB2312 and is
+  decoded to UTF-8 with a built-in table, so no iconv dependency is needed.
+  `↑/↓` and `PgUp/PgDn` scroll the list, and `[` / `]` switch to the previous
+  or next service.
+- `[4 调试]` — tails the `--reg-log` file (CTRL/I2C commands sent to the
+  stick).
+
+The bottom rows show live EP 0x8A signal strength/quality bars and lock state,
+TS bit rate, register telemetry, and CC/resync/dropped-byte counters.  When no
+status packet has arrived yet they show `--` plus a running timeout counter
+("已读取 N 次超时"), so a silent EP 0x8A endpoint is distinguishable from one
+that is actively being read.
+
+If no `--file` target is supplied, recording creates `record-<unix-time>.ts`
+in the current directory.
+
+`--tui` is built by default on macOS/Linux and on modern Windows when compiled
+with MSVC (FTXUI v7; CMake fetches it automatically when it is not installed).
+MinGW/Windows-XP builds keep the CLI behaviour and print an error if `--tui`
+is requested.
 
 ### Platform access
 
@@ -159,6 +199,10 @@ device (VID/PID `0x3344` / `0x1120`) with WinUSB or libusbK.  Run:
 ```powershell
 .\build\Release\lme2510_stream.exe --freq 618 --no-udp --file out.ts --seconds 10
 ```
+
+The x64 MSVC build also supports the interactive TUI (`--tui`); run it from a
+terminal that supports VT/ANSI output (Windows 10+ console or Windows
+Terminal).
 
 #### Windows XP
 

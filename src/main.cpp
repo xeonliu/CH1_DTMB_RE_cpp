@@ -10,6 +10,10 @@
 #include "lme2510/util/logger.hpp"
 #include "lme2510/util/platform.hpp"
 
+#if defined(LME2510_ENABLE_TUI)
+#include "tui/tui_app.hpp"
+#endif
+
 namespace {
 
 std::string timestampForFileName() {
@@ -61,9 +65,6 @@ int main(int argc, char** argv) {
       options.regLogPath = "logs/regs-" + stamp + ".log";
     }
 
-    std::cout << "status log : " << options.statusLogPath << '\n';
-    std::cout << "register log: " << options.regLogPath << '\n';
-
     RegLogger regLogger(options.regLogPath, options.usbTrace);
     std::ofstream statusLog(options.statusLogPath,
                             std::ios::out | std::ios::app);
@@ -71,6 +72,21 @@ int main(int argc, char** argv) {
       throw std::runtime_error("cannot open status log: " +
                                options.statusLogPath);
     }
+
+#if defined(LME2510_ENABLE_TUI)
+    if (options.tui) {
+      return lme2510::tui::runTui(options, regLogger, statusLog);
+    }
+#else
+    if (options.tui) {
+      std::cerr << "error: --tui is not available in this build (enable "
+                   "LME2510_ENABLE_TUI for macOS/Linux/MSVC-Windows)\n";
+      return 2;
+    }
+#endif
+
+    std::cout << "status log : " << options.statusLogPath << '\n';
+    std::cout << "register log: " << options.regLogPath << '\n';
 
     ReceiverOptions receiverOptions;
     receiverOptions.frequencyMhz = options.frequencyMhz;

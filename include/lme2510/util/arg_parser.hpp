@@ -18,6 +18,7 @@ struct Options {
   std::string statusLogPath;
   std::string regLogPath;
   bool usbTrace = false;
+  bool tui = false;
   std::string fw1Path;
   std::string fw2Path;
 };

@@ -11,12 +11,25 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 if(MSVC)
-  add_compile_options(/W4 /EHsc)
+  add_compile_options(/W4 /EHsc /utf-8)
 else()
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
 option(LME2510_BUILD_TOOLS "Build firmware embedding generator" ON)
+# FTXUI v7 is cross-platform: the TUI builds on macOS/Linux and on modern
+# Windows with MSVC.  MinGW/Windows-XP cross builds stay CLI-only (FTXUI is
+# not validated for those toolchains there).
+if(MSVC)
+  set(LME2510_ENABLE_TUI_DEFAULT ON)
+elseif(WIN32)
+  set(LME2510_ENABLE_TUI_DEFAULT OFF)
+else()
+  set(LME2510_ENABLE_TUI_DEFAULT ON)
+endif()
+option(LME2510_ENABLE_TUI
+       "Build the full-screen FTXUI TUI (macOS/Linux and MSVC Windows)"
+       ${LME2510_ENABLE_TUI_DEFAULT})
 
 # --- Firmware embedding -----------------------------------------------------
 set(FW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/fw")
@@ -73,6 +86,8 @@ set(LME2510_SOURCES
   src/tuner/max2165.cpp
   src/frontend/receiver.cpp
   src/stream/ts_packetizer.cpp
+  src/stream/ts_loss.cpp
+  src/stream/program_guide.cpp
   src/stream/stream_session.cpp
   src/stream/sinks.cpp
   src/net/udp_socket.cpp
@@ -80,12 +95,44 @@ set(LME2510_SOURCES
   src/util/arg_parser.cpp
   src/util/platform.cpp)
 
+if(LME2510_ENABLE_TUI)
+  list(APPEND LME2510_SOURCES
+    src/tui/tui_model.cpp
+    src/tui/tui_engine.cpp
+    src/tui/capture_session.cpp
+    src/tui/tui_app.cpp)
+  # Prefer an installed FTXUI (e.g. `brew install ftxui` on macOS or the
+  # vcpkg `ftxui` port on Windows); otherwise fetch the pinned release so the
+  # TUI stays buildable on a clean machine.
+  find_package(ftxui CONFIG QUIET)
+  if(NOT ftxui_FOUND)
+    message(STATUS "FTXUI not found on the system; downloading v7.0.3 source.")
+    include(FetchContent)
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
+      FetchContent_Declare(ftxui
+        URL https://github.com/ArthurSonzogni/FTXUI/releases/download/v7.0.3/source.tar.gz
+        URL_HASH SHA256=be506d647bf6eed2e7927f99ea080bcccff0938d9a35617756161d5b76df8b8a
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    else()
+      FetchContent_Declare(ftxui
+        URL https://github.com/ArthurSonzogni/FTXUI/releases/download/v7.0.3/source.tar.gz
+        URL_HASH SHA256=be506d647bf6eed2e7927f99ea080bcccff0938d9a35617756161d5b76df8b8a)
+    endif()
+    FetchContent_MakeAvailable(ftxui)
+  endif()
+endif()
+
 add_library(lme2510 STATIC ${LME2510_SOURCES})
 add_dependencies(lme2510 embedded_firmware)
 target_include_directories(lme2510
   PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+if(LME2510_ENABLE_TUI)
+  target_link_libraries(lme2510 PUBLIC ftxui::component)
+  target_compile_definitions(lme2510 PUBLIC LME2510_ENABLE_TUI=1)
+endif()
 
 # --- libusb -----------------------------------------------------------------
 set(LIBUSB_INCLUDE_DIRS "")
@@ -142,6 +189,7 @@ if(LIBUSB_LIBRARY_DIRS)
 endif()
 if(WIN32)
   target_link_libraries(lme2510 PUBLIC ws2_32)
+  target_compile_definitions(lme2510 PUBLIC NOMINMAX)
 endif()
 
 # --- Executable -------------------------------------------------------------
