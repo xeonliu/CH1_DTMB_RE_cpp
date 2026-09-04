@@ -142,9 +142,51 @@ jobs:
           name: release-windows-xp-x86
           path: lme2510_stream-xp-x86.exe
 
+  # Build the Termux (Android aarch64) executable with the same official
+  # Termux container used by ci.yml and attach it to the release.  The binary
+  # runs inside Termux only; USB access still needs termux-usb (see README).
+  termux:
+    name: Termux (aarch64)
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build in Termux container
+        run: |
+          tar --exclude=.git -C "$GITHUB_WORKSPACE" -cf - . | docker run -i \
+            --privileged \
+            --name termux-build \
+            termux/termux-docker:latest bash -lc '
+              set -e
+              pkg update -y
+              pkg install -y clang cmake ninja pkg-config libusb
+              mkdir -p src
+              tar -C src -xf -
+              cmake -S "$PWD/src" -B "$PWD/build" -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release
+              cmake --build "$PWD/build" --parallel 2
+              "$PWD/build/lme2510_stream" --help
+            '
+
+      - name: Copy binary out of container
+        run: |
+          docker cp termux-build:/data/data/com.termux/files/home/build/lme2510_stream \
+            lme2510_stream-termux-aarch64
+          docker rm -f termux-build
+          sudo chown "$USER" lme2510_stream-termux-aarch64
+          chmod +x lme2510_stream-termux-aarch64
+          file lme2510_stream-termux-aarch64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-termux-aarch64
+          path: lme2510_stream-termux-aarch64
+
   release:
     name: Publish GitHub Release
-    needs: [native, windows-xp]
+    needs: [native, windows-xp, termux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
