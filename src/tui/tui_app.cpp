@@ -122,6 +122,119 @@ std::string epgDurationText(std::uint32_t seconds) {
   return buffer;
 }
 
+std::string clockText(std::uint64_t utcSeconds) {
+  if (utcSeconds == 0) {
+    return "--:--";
+  }
+  const std::time_t time = static_cast<std::time_t>(utcSeconds);
+  std::tm local{};
+#ifdef _WIN32
+  localtime_s(&local, &time);
+#else
+  localtime_r(&time, &local);
+#endif
+  char buffer[16];
+  std::snprintf(buffer, sizeof(buffer), "%02d:%02d", local.tm_hour,
+                local.tm_min);
+  return buffer;
+}
+
+struct EpgRow {
+  std::string text;
+  bool cursor = false;
+  bool live = false;
+};
+
+bool epgEventOnAir(const EpgEvent& event, std::time_t now) {
+  if (event.startUtc == 0 || event.durationSec == 0) {
+    return false;
+  }
+  const std::time_t start = static_cast<std::time_t>(event.startUtc);
+  const std::time_t end =
+      start + static_cast<std::time_t>(event.durationSec);
+  return start <= now && now < end;
+}
+
+/// Index of the event currently on air, or events.size() when none.
+std::size_t epgCurrentIndex(const std::vector<EpgEvent>& events,
+                            std::time_t now) {
+  for (std::size_t index = 0; index < events.size(); ++index) {
+    if (epgEventOnAir(events[index], now)) {
+      return index;
+    }
+    // events are sorted by startUtc, so nothing after this can be on air yet.
+    if (events[index].startUtc > static_cast<std::uint64_t>(now)) {
+      break;
+    }
+  }
+  return events.size();
+}
+
+/// Cursor start index: on-air event first, otherwise the next upcoming one.
+std::size_t epgCursorStart(const std::vector<EpgEvent>& events,
+                           std::time_t now) {
+  if (events.empty()) {
+    return 0;
+  }
+  const std::size_t current = epgCurrentIndex(events, now);
+  if (current != events.size()) {
+    return current;
+  }
+  for (std::size_t index = 0; index < events.size(); ++index) {
+    const std::uint64_t end =
+        events[index].startUtc + events[index].durationSec;
+    if (end > static_cast<std::uint64_t>(now)) {
+      return index;
+    }
+  }
+  return events.size() - 1;  // the whole list is in the past
+}
+
+std::string epgEventName(const EpgEvent& event) {
+  return event.name.empty() ? "(无名称)" : event.name;
+}
+
+/// One-line "正在播出/下一档/无数据" summary for a service at `now`.
+std::string epgNowSummary(const std::vector<EpgEvent>& events,
+                          std::time_t now) {
+  if (events.empty()) {
+    return "暂无 EPG 数据";
+  }
+  const std::size_t current = epgCurrentIndex(events, now);
+  if (current != events.size()) {
+    const EpgEvent& event = events[current];
+    return "正在播出: " + epgEventName(event) + "（" +
+           clockText(event.startUtc) + "-" +
+           clockText(event.startUtc + event.durationSec) + "）";
+  }
+  for (std::size_t index = 0; index < events.size(); ++index) {
+    const EpgEvent& event = events[index];
+    const std::uint64_t end = event.startUtc + event.durationSec;
+    if (end > static_cast<std::uint64_t>(now)) {
+      return "下一档: " + clockText(event.startUtc) + " " +
+             epgEventName(event);
+    }
+  }
+  return "今日节目已播完";
+}
+
+/// One-line summary of the event right after the one on air (if any).
+std::string epgFollowingSummary(const std::vector<EpgEvent>& events,
+                                std::time_t now) {
+  if (events.empty()) {
+    return "--";
+  }
+  const std::size_t current = epgCurrentIndex(events, now);
+  const std::size_t next =
+      current != events.size() && current + 1 < events.size() ? current + 1
+                                                              : events.size();
+  if (next != events.size()) {
+    const EpgEvent& event = events[next];
+    return clockText(event.startUtc) + " " + epgEventName(event);
+  }
+  return "--";
+}
+
 int utf8Codepoint(std::string_view text, std::size_t index,
                   std::size_t* length) {
   const std::uint8_t byte = static_cast<std::uint8_t>(text[index]);
@@ -373,7 +486,7 @@ class TuiUi {
   std::vector<std::string> consoleRightLines(int width, int height);
   std::vector<std::string> outputPaneLines(int width) const;
   std::vector<std::string> detailPaneLines(int width) const;
-  std::vector<std::string> epgLines(int width, int height);
+  std::vector<EpgRow> epgRows(int width, int height);
 
   std::string phaseText() const;
 
@@ -392,7 +505,9 @@ class TuiUi {
   std::size_t svcTop_ = 0;
   std::size_t paneTop_ = 0;
   std::size_t epgService_ = 0;
-  std::size_t epgScroll_ = 0;
+  std::size_t epgCursor_ = 0;
+  std::size_t epgTop_ = 0;
+  bool epgAutoFollow_ = false;
   std::size_t debugTop_ = 0;
   bool pendingTune_ = false;
   std::chrono::steady_clock::time_point busyStart_{};
@@ -613,7 +728,12 @@ bool TuiUi::OnEvent(const Event& event) {
       }
       if (isKey(event, 'e', 'E') && !services.empty()) {
         epgService_ = svcCursor_ < services.size() ? svcCursor_ : 0;
-        epgScroll_ = 0;
+        const std::vector<EpgEvent>& events =
+            services[epgService_].events;
+        epgCursor_ =
+            events.empty() ? 0 : epgCursorStart(events, std::time(nullptr));
+        epgTop_ = epgCursor_;
+        epgAutoFollow_ = true;
         page_ = Page::kEpg;
         return true;
       }
@@ -647,38 +767,60 @@ bool TuiUi::OnEvent(const Event& event) {
         if (epgService_ >= services.size()) {
           epgService_ = services.size() - 1;
         }
-        const std::size_t eventCount = services[epgService_].events.size();
+        const std::vector<EpgEvent>& events =
+            services[epgService_].events;
+        const std::size_t eventCount = events.size();
         const std::size_t maxTop = eventCount > 0 ? eventCount - 1 : 0;
-        const Metrics metrics = computeMetrics();
-        const std::size_t pageRows =
-            std::max(static_cast<std::size_t>(1),
-                     static_cast<std::size_t>(metrics.bodyRows) - 1);
 
         if (event == Event::ArrowUp || isKey(event, 'k', 'K')) {
-          epgScroll_ = epgScroll_ == 0 ? 0 : epgScroll_ - 1;
+          epgAutoFollow_ = false;
+          epgCursor_ = epgCursor_ == 0 ? 0 : epgCursor_ - 1;
           return true;
         }
         if (event == Event::ArrowDown || isKey(event, 'j', 'J')) {
-          epgScroll_ = std::min(epgScroll_ + 1, maxTop);
+          epgAutoFollow_ = false;
+          epgCursor_ = std::min(epgCursor_ + 1, maxTop);
           return true;
         }
         if (event == Event::PageUp) {
-          epgScroll_ = epgScroll_ <= pageRows ? 0 : epgScroll_ - pageRows;
+          epgAutoFollow_ = false;
+          const Metrics metrics = computeMetrics();
+          const std::size_t pageRows = std::max(
+              static_cast<std::size_t>(1),
+              static_cast<std::size_t>(metrics.bodyRows) - 1);
+          epgCursor_ = epgCursor_ <= pageRows ? 0 : epgCursor_ - pageRows;
           return true;
         }
         if (event == Event::PageDown) {
-          epgScroll_ = std::min(epgScroll_ + pageRows, maxTop);
+          epgAutoFollow_ = false;
+          const Metrics metrics = computeMetrics();
+          const std::size_t pageRows = std::max(
+              static_cast<std::size_t>(1),
+              static_cast<std::size_t>(metrics.bodyRows) - 1);
+          epgCursor_ = std::min(epgCursor_ + pageRows, maxTop);
           return true;
         }
         if (event == Event::Character('[')) {
           epgService_ = epgService_ == 0 ? services.size() - 1
                                          : epgService_ - 1;
-          epgScroll_ = 0;
+          const std::vector<EpgEvent>& switched =
+              services[epgService_].events;
+          epgCursor_ = switched.empty()
+                           ? 0
+                           : epgCursorStart(switched, std::time(nullptr));
+          epgTop_ = epgCursor_;
+          epgAutoFollow_ = true;
           return true;
         }
         if (event == Event::Character(']')) {
           epgService_ = (epgService_ + 1) % services.size();
-          epgScroll_ = 0;
+          const std::vector<EpgEvent>& switched =
+              services[epgService_].events;
+          epgCursor_ = switched.empty()
+                           ? 0
+                           : epgCursorStart(switched, std::time(nullptr));
+          epgTop_ = epgCursor_;
+          epgAutoFollow_ = true;
           return true;
         }
       }
@@ -906,6 +1048,16 @@ Element TuiUi::renderContextRow(int width) const {
       mode = "监视";
     }
     text += mode;
+    if (selected.active) {
+      const std::vector<MuxService> services = model_.services();
+      for (const MuxService& service : services) {
+        if (service.programNumber == selected.programNumber &&
+            !service.events.empty()) {
+          text += " | " + epgNowSummary(service.events, std::time(nullptr));
+          break;
+        }
+      }
+    }
   } else if (page_ == Page::kEpg) {
     const std::vector<MuxService> services = model_.services();
     if (!services.empty()) {
@@ -1020,7 +1172,8 @@ Element TuiUi::renderHelpRow(int width) const {
       break;
     case Page::kEpg:
       text =
-          "↑↓ 滚动 | [ / ] 换台 | Esc/2 返回控制台 | F/1 频率 | 4 日志 | "
+          "↑↓ 滚动（绿行=正在播出）| [ / ] 换台 | Esc/2 返回控制台 | F/1 频率 | "
+          "4 日志 | "
           "Q 退出";
       break;
     case Page::kDebug:
@@ -1279,6 +1432,12 @@ std::vector<std::string> TuiUi::detailPaneLines(int width) const {
   out.push_back(std::string("PMT PID: ") + pidText);
   std::snprintf(pidText, sizeof(pidText), "0x%04X", service.pcrPid);
   out.push_back(std::string("PCR PID: ") + pidText);
+  const std::time_t now = std::time(nullptr);
+  out.push_back(epgNowSummary(service.events, now));
+  const std::string next = epgFollowingSummary(service.events, now);
+  if (next != "--") {
+    out.push_back("预告  : " + next);
+  }
   out.push_back("流数  : " + std::to_string(service.streamPids.size()));
   out.push_back("PID 列表:");
   for (const std::uint16_t pid : service.streamPids) {
@@ -1376,13 +1535,13 @@ Element TuiUi::renderConsoleBody(int width) {
 
 // ---- EPG page ------------------------------------------------------------------
 
-std::vector<std::string> TuiUi::epgLines(int width, int height) {
-  std::vector<std::string> out;
+std::vector<EpgRow> TuiUi::epgRows(int width, int height) {
+  std::vector<EpgRow> out;
   const std::vector<MuxService> services = model_.services();
   if (services.empty()) {
-    out.push_back(fit("没有节目表…（先锁定并进入控制台）", width));
+    out.push_back(EpgRow{fit("没有节目表…（先锁定并进入控制台）", width)});
     while (out.size() < static_cast<std::size_t>(height)) {
-      out.push_back(fit("", width));
+      out.push_back(EpgRow{fit("", width)});
     }
     return out;
   }
@@ -1392,53 +1551,75 @@ std::vector<std::string> TuiUi::epgLines(int width, int height) {
   const std::string title =
       "-- 节目单: " + service.name + "（prog " +
       std::to_string(service.programNumber) + "）--";
-  out.push_back(fit(title, width));
+  out.push_back(EpgRow{fit(title, width)});
 
   const int rows = std::max(0, height - 1);
   if (service.events.empty()) {
-    out.push_back(fit("本台暂无 EPG 事件；继续监视等待 EIT（PID 0x0012）…",
-                      width));
+    out.push_back(EpgRow{
+        fit("本台暂无 EPG 事件；继续监视等待 EIT（PID 0x0012）…", width)});
     while (out.size() < static_cast<std::size_t>(height)) {
-      out.push_back(fit("", width));
+      out.push_back(EpgRow{fit("", width)});
     }
     return out;
   }
 
-  if (epgScroll_ >= service.events.size()) {
-    epgScroll_ = service.events.size() - 1;
+  const std::time_t now = std::time(nullptr);
+  // live == events.size() when no event is currently on air.
+  const std::size_t live = epgCurrentIndex(service.events, now);
+  if (epgAutoFollow_) {
+    epgCursor_ = epgCursorStart(service.events, now);
   }
+
+  const std::size_t maxIndex = service.events.size() - 1;
+  if (epgCursor_ > maxIndex) {
+    epgCursor_ = maxIndex;
+  }
+  if (epgTop_ > maxIndex) {
+    epgTop_ = 0;
+  }
+  const std::size_t rowsAvailable =
+      std::min(static_cast<std::size_t>(rows), service.events.size());
+  if (epgTop_ + rowsAvailable <= epgCursor_) {
+    epgTop_ = epgCursor_ + 1 - rowsAvailable;
+  }
+  if (epgCursor_ < epgTop_) {
+    epgTop_ = epgCursor_;
+  }
+
   std::size_t shown = 0;
-  for (std::size_t eventIndex = epgScroll_;
-       eventIndex < service.events.size() &&
-       shown < static_cast<std::size_t>(rows);
+  for (std::size_t eventIndex = epgTop_;
+       eventIndex < service.events.size() && shown < rowsAvailable;
        ++eventIndex, ++shown) {
     const EpgEvent& event = service.events[eventIndex];
-    std::string line = epgTimeText(event.startUtc);
+    std::string line;
+    line += eventIndex == epgCursor_
+                ? "> "
+                : (eventIndex == live ? "* " : "  ");
+    line += epgTimeText(event.startUtc);
     line += "  " + epgDurationText(event.durationSec) + "  ";
-    if (event.name.empty()) {
-      line += "(无名称)";
-    } else {
-      line += event.name;
-    }
-    if (eventIndex == epgScroll_) {
-      line = "> " + line;
-    } else {
-      line = "  " + line;
-    }
-    out.push_back(fit(line, width));
+    line += event.name.empty() ? "(无名称)" : event.name;
+    out.push_back(EpgRow{fit(line, width), eventIndex == epgCursor_,
+                         eventIndex == live});
   }
   while (out.size() < static_cast<std::size_t>(height)) {
-    out.push_back(fit("", width));
+    out.push_back(EpgRow{fit("", width)});
   }
   return out;
 }
 
 Element TuiUi::renderEpgBody(int width, int height) {
-  const std::vector<std::string> lines = epgLines(width, height);
+  const std::vector<EpgRow> epg = epgRows(width, height);
   Elements rows;
-  rows.reserve(lines.size());
-  for (const std::string& line : lines) {
-    rows.push_back(ftxui::text(line));
+  rows.reserve(epg.size());
+  for (const EpgRow& row : epg) {
+    Element element = ftxui::text(row.text);
+    if (row.live) {
+      element = element | ftxui::color(Color::GreenLight);
+    }
+    if (row.cursor) {
+      element = element | ftxui::bgcolor(Color::GrayDark);
+    }
+    rows.push_back(element);
   }
   return ftxui::vbox(rows);
 }
