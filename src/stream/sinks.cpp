@@ -11,10 +11,18 @@ FileSink::~FileSink() {
 
 void FileSink::open(const std::string& path) {
   close();
+#if defined(_MSC_VER)
+  FILE* opened = nullptr;
+  if (fopen_s(&opened, path.c_str(), "wb") != 0) {
+    throw std::runtime_error("cannot open file: " + path);
+  }
+  file_ = opened;
+#else
   file_ = std::fopen(path.c_str(), "wb");
   if (file_ == nullptr) {
     throw std::runtime_error("cannot open file: " + path);
   }
+#endif
   path_ = path;
 }
 

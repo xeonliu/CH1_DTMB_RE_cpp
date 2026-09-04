@@ -189,6 +189,7 @@ if(LIBUSB_LIBRARY_DIRS)
 endif()
 if(WIN32)
   target_link_libraries(lme2510 PUBLIC ws2_32)
+  target_compile_definitions(lme2510 PUBLIC NOMINMAX)
 endif()
 
 # --- Executable -------------------------------------------------------------
